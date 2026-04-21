@@ -41,8 +41,8 @@ Validation types:
 | 5 | Ingestion module | Signed Off | Yes | Ingestion pipeline shipped with reusable embedding usage-accounting helper |
 | 6 | Template system | Signed Off | Yes | Inbuilt + custom template compilation pipeline integrated and validated locally |
 | 7 | Retrieval module | Signed Off | Yes | Section retrieval/evidence packaging integrated, validated with mocked local tests |
-| 8 | Generation module | Signed Off | Yes | |
-| 9 | Assembly + export | Signed Off | Yes | Phase 9 implemented; user sign-off pending |
+| 8 | Generation module | Signed Off | Yes | Committed with Phase 9; pytest + lint green |
+| 9 | Assembly + export | Signed Off | Yes | See Phase 9 notes (warnings, sheet_map, DocxFiller) |
 | 10 | Workers + SSE | Not Started | No | |
 | 11 | Final validation hardening | Not Started | No | |
 
@@ -276,7 +276,7 @@ Validation types:
 
 ### Sign-off
 - Status: `Signed Off`
-- User sign-off: `Pending`
+- User sign-off: `Approved`
 - Notes:
   - Added generation prompt pack under `backend/prompts/generation/` (text/table/diagram + PlantUML correction + Mermaid fallback).
   - Added `backend/modules/generation/`: `GenerationPromptLoader`, `TextSectionGenerator`, `TableSectionGenerator`, `DiagramSectionGenerator` (PlantUML retries + Mermaid fallback via Kroki), `KrokiRenderer`, `GenerationOrchestrator` (dependency waves + `asyncio.gather`), `GenerationCostTracker`, `merge_generation_observability`.
@@ -300,15 +300,16 @@ Validation types:
 - [x] generated files open and structure matches expected.
 
 ### Sign-off
-- Status: `Signed Off` (pending user approval)
-- User sign-off: `Pending`
+- Status: `Signed Off`
+- User sign-off: `Approved`
 - Notes:
-  - Added `backend/modules/assembly/` (`DocumentAssembler`, `AssembledDocument` / `AssembledSection` without citation fields).
-  - Added `backend/modules/export/` (`ExportRenderer`, `DocxBuilder`, `DocxFiller`, `XlsxBuilder`, markdown table helpers).
-  - Wired `WorkflowExecutor._phase_assembly_validation` and `_phase_render_export` with `OutputService.create`, `assembled_document` persistence, `output.ready` SSE, and `storage/outputs/{workflow_run_id}.{docx|xlsx}`.
+  - Added `backend/modules/assembly/` (`DocumentAssembler`, `AssemblyOutcome` with `warnings` for missing generation rows, `AssembledDocument` / `AssembledSection` without citation fields).
+  - Added `backend/modules/export/` (`ExportRenderer` returns export warnings; `ExportDocumentInfo` / `ExportTemplateInfo`; `DocxBuilder` with Title-only title style, list bullets/numbering; `DocxFiller` re-scans headings per section, `template_heading_not_found` warnings, optional `style_map`; `XlsxBuilder` uses template `sheet_map`, preserves header row when filling template workbooks; `markdown_tables` GFM separator fix).
+  - Wired `WorkflowExecutor`: assembly merges warnings into `WorkflowRecord.warnings`; render merges filler/export warnings; `sheet_map` passed into export for UAT.
   - Dependencies: `python-docx`, `openpyxl` in `backend/requirements.txt`; `get_workflow_executor()` injects `output_service`.
-  - Tests: `backend/tests/test_phase9_assembly_export.py`.
+  - Tests: `backend/tests/test_phase9_assembly_export.py` (includes multi-section filler + missing-heading cases).
   - Local validation PASS: `python -m pytest -q`.
+  - Backend feature commit bundles Phase 8 + Phase 9; this checklist + `cmds.txt` track sign-off and next phase entry.
 
 ---
 

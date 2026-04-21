@@ -1,1 +1,5 @@
-Start Phase 2 using mandatory workflow: 1) review all phase docs, 2) review completed-phase code, 3) switch to Plan Mode and share implementation plan, 4) post Phase Readiness Checklist in chat, then begin implementation.
+Start Phase 10 using mandatory workflow:
+1) review all phase docs,
+2) review completed-phase code,
+3) switch to Plan Mode and share implementation plan,
+4) post Phase Readiness Checklist in chat, then begin implementation.
