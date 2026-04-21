@@ -63,5 +63,5 @@ class DocumentService:
         if file_path.exists():
             file_path.unlink()
         else:
-            logger.warning("document_binary_missing", document_id=document_id, file_path=str(file_path))
+            logger.warning("document.binary.missing document_id=%s file_path=%s", document_id, str(file_path))
         return self._repo.delete(document_id)

@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 
 from core.constants import MODEL_PRICING, PHASE_WEIGHTS, TemplateStatus, WorkflowPhase, WorkflowStatus
 from core.exceptions import WorkflowException
@@ -105,6 +106,7 @@ class WorkflowExecutor:
             {"phase": phase.value},
         )
 
+        phase_started_at = perf_counter()
         for attempt in range(2):
             try:
                 logger.info(
@@ -133,6 +135,7 @@ class WorkflowExecutor:
 
         workflow = self._workflow_service.get_or_raise(workflow_run_id)
         progress = min(100.0, float(workflow.overall_progress_percent) + PHASE_WEIGHTS[phase])
+        duration_ms = int((perf_counter() - phase_started_at) * 1000)
         self._workflow_service.update(
             workflow_run_id,
             overall_progress_percent=progress,
@@ -141,17 +144,20 @@ class WorkflowExecutor:
         await self._event_service.emit(
             workflow_run_id,
             "phase.completed",
-            {"phase": phase.value, "duration_ms": 0},
+            {"phase": phase.value, "duration_ms": duration_ms},
         )
         logger.info(
-            "phase.completed workflow_run_id=%s phase=%s progress=%s",
+            "phase.completed workflow_run_id=%s phase=%s progress=%s duration_ms=%s",
             workflow_run_id,
             phase.value,
             progress,
+            duration_ms,
         )
 
     async def _phase_input_preparation(self, workflow_run_id: str) -> None:
+        logger.info("inputpreparation.phase.enter workflow_run_id=%s", workflow_run_id)
         self._workflow_service.update(workflow_run_id, current_step_label="Initializing workflow")
+        logger.info("inputpreparation.phase.completed workflow_run_id=%s", workflow_run_id)
 
     async def _phase_ingestion(self, workflow_run_id: str) -> None:
         workflow = self._workflow_service.get_or_raise(workflow_run_id)
@@ -163,9 +169,19 @@ class WorkflowExecutor:
         )
 
         if self._ingestion_orchestrator is None or self._ingestion_coordinator is None:
+            logger.warning(
+                "ingestion.phase.skippedmissingdependencies workflow_run_id=%s document_id=%s",
+                workflow_run_id,
+                workflow.document_id,
+            )
             self._workflow_service.update(workflow_run_id, current_step_label="Ingestion dependencies not configured")
             return
         if not self._ingestion_orchestrator.is_configured():
+            logger.warning(
+                "ingestion.phase.skippednotconfigured workflow_run_id=%s document_id=%s",
+                workflow_run_id,
+                workflow.document_id,
+            )
             self._workflow_service.update(
                 workflow_run_id,
                 current_step_label="Ingestion skipped (No Azure credentials)",
@@ -178,6 +194,11 @@ class WorkflowExecutor:
             lambda doc: self._run_ingestion_pipeline(workflow_run_id, doc),
         )
         if skipped:
+            logger.info(
+                "ingestion.phase.skippedalreadyindexed workflow_run_id=%s document_id=%s",
+                workflow_run_id,
+                workflow.document_id,
+            )
             self._workflow_service.update(
                 workflow_run_id,
                 current_step_label="Ingestion skipped (already indexed)",
@@ -185,6 +206,14 @@ class WorkflowExecutor:
             return
 
         if result is not None:
+            logger.info(
+                "ingestion.completed workflow_run_id=%s document_id=%s chunk_count=%s page_count=%s embedding_cost_usd=%s",
+                workflow_run_id,
+                workflow.document_id,
+                result.chunk_count,
+                result.page_count,
+                result.embedding_cost_usd,
+            )
             self._apply_ingestion_observability(workflow_run_id, result)
             self._workflow_service.update(
                 workflow_run_id,
@@ -195,7 +224,7 @@ class WorkflowExecutor:
         workflow = self._workflow_service.get_or_raise(workflow_run_id)
         template = self._workflow_service.get_template(workflow.template_id)
         logger.info(
-            "template_preparation.enter workflow_run_id=%s template_id=%s",
+            "templatepreparation.phase.enter workflow_run_id=%s template_id=%s",
             workflow_run_id,
             workflow.template_id,
         )
@@ -210,6 +239,13 @@ class WorkflowExecutor:
                 section_plan=[item.model_dump() for item in section_plan],
                 style_map=style_map.model_dump(),
                 sheet_map={},
+            )
+            logger.info(
+                "templatepreparation.phase.completedinbuilt workflow_run_id=%s template_id=%s doc_type=%s section_count=%s",
+                workflow_run_id,
+                template.template_id,
+                doc_type.value,
+                len(section_plan),
             )
             return
 
@@ -227,9 +263,17 @@ class WorkflowExecutor:
             style_map=style_map.model_dump(),
             sheet_map=template.sheet_map or {},
         )
+        logger.info(
+            "templatepreparation.phase.completedcustom workflow_run_id=%s template_id=%s section_count=%s",
+            workflow_run_id,
+            template.template_id,
+            len(section_plan),
+        )
 
     async def _phase_section_planning(self, workflow_run_id: str) -> None:
+        logger.info("sectionplanning.phase.enter workflow_run_id=%s", workflow_run_id)
         self._workflow_service.update(workflow_run_id, current_step_label="Section planning stub")
+        logger.info("sectionplanning.phase.completed workflow_run_id=%s", workflow_run_id)
 
     async def _phase_retrieval(self, workflow_run_id: str) -> None:
         workflow = self._workflow_service.get_or_raise(workflow_run_id)
@@ -240,18 +284,21 @@ class WorkflowExecutor:
             len(section_plan),
         )
         if not section_plan:
+            logger.info("retrieval.phase.skippednosections workflow_run_id=%s", workflow_run_id)
             self._workflow_service.update(workflow_run_id, current_step_label="Retrieval skipped (no sections)")
             return
 
         if self._section_retriever is None or self._evidence_packager is None:
             message = "Retrieval dependencies not configured"
             if self._is_local_env():
+                logger.warning("retrieval.phase.skippedlocalmissingdependencies workflow_run_id=%s", workflow_run_id)
                 self._workflow_service.update(workflow_run_id, current_step_label=f"{message} (local skip)")
                 return
             raise WorkflowException(message)
         if not self._section_retriever.is_configured():
             message = "Retrieval not configured (missing Azure credentials)"
             if self._is_local_env():
+                logger.warning("retrieval.phase.skippedlocalnotconfigured workflow_run_id=%s", workflow_run_id)
                 self._workflow_service.update(
                     workflow_run_id,
                     current_step_label=f"{message}; skipped in local env",
@@ -269,6 +316,11 @@ class WorkflowExecutor:
             for section in section_plan
         ]
         outputs = await asyncio.gather(*tasks)
+        logger.info(
+            "retrieval.sectiontasks.completed workflow_run_id=%s section_count=%s",
+            workflow_run_id,
+            len(outputs),
+        )
 
         section_retrieval_results: dict[str, dict[str, object]] = {}
         total_embedding_cost_usd = 0.0
@@ -291,6 +343,13 @@ class WorkflowExecutor:
             total_llm_calls=retrieval_cost_tracker.total_llm_calls,
         )
         self._workflow_service.update(workflow_run_id, observability_summary=observability_summary)
+        logger.info(
+            "retrieval.phase.completed workflow_run_id=%s retrieved_sections=%s retrieval_llm_cost_usd=%s embedding_cost_usd=%s",
+            workflow_run_id,
+            len(section_retrieval_results),
+            retrieval_cost_tracker.llm_cost_usd,
+            total_embedding_cost_usd,
+        )
 
     async def _phase_generation(self, workflow_run_id: str) -> None:
         workflow = self._workflow_service.get_or_raise(workflow_run_id)
@@ -301,12 +360,14 @@ class WorkflowExecutor:
             len(section_plan),
         )
         if not section_plan:
+            logger.info("generation.phase.skippednosections workflow_run_id=%s", workflow_run_id)
             self._workflow_service.update(workflow_run_id, current_step_label="Generation skipped (no sections)")
             return
 
         if self._generation_orchestrator is None:
             message = "Generation dependencies not configured"
             if self._is_local_env():
+                logger.warning("generation.phase.skippedlocalmissingdependencies workflow_run_id=%s", workflow_run_id)
                 self._workflow_service.update(workflow_run_id, current_step_label=f"{message} (local skip)")
                 return
             raise WorkflowException(message)
@@ -314,6 +375,7 @@ class WorkflowExecutor:
         if not self._generation_orchestrator.is_configured():
             message = "Generation not configured (missing Azure credentials)"
             if self._is_local_env():
+                logger.warning("generation.phase.skippedlocalnotconfigured workflow_run_id=%s", workflow_run_id)
                 self._workflow_service.update(
                     workflow_run_id,
                     current_step_label=f"{message}; skipped in local env",
@@ -370,10 +432,13 @@ class WorkflowExecutor:
         )
         self._workflow_service.update(workflow_run_id, observability_summary=observability_summary)
         logger.info(
-            "generation.completed workflow_run_id=%s completed=%s failed=%s",
+            "generation.phase.completed workflow_run_id=%s completed=%s failed=%s llm_cost_usd=%s total_tokens_in=%s total_tokens_out=%s",
             workflow_run_id,
             completed,
             failed,
+            cost_tracker.llm_cost_usd,
+            cost_tracker.total_tokens_in,
+            cost_tracker.total_tokens_out,
         )
 
     async def _phase_assembly_validation(self, workflow_run_id: str) -> None:
@@ -387,6 +452,7 @@ class WorkflowExecutor:
         section_plan = [SectionDefinition.model_validate(x) for x in (workflow.section_plan or [])]
         gen = workflow.section_generation_results or {}
         if not section_plan:
+            logger.info("assembly.phase.skippednosections workflow_run_id=%s", workflow_run_id)
             self._workflow_service.update(workflow_run_id, current_step_label="Assembly skipped (no sections)")
             return
         outcome = self._document_assembler.assemble(
@@ -402,18 +468,26 @@ class WorkflowExecutor:
             warnings=merged_warnings,
             current_step_label=f"Assembled {len(outcome.document.sections)} sections",
         )
+        logger.info(
+            "assembly.phase.completed workflow_run_id=%s assembled_sections=%s warnings_added=%s",
+            workflow_run_id,
+            len(outcome.document.sections),
+            len(outcome.warnings),
+        )
 
     async def _phase_render_export(self, workflow_run_id: str) -> None:
         if self._output_service is None:
+            logger.warning("renderexport.phase.skippednooutputservice workflow_run_id=%s", workflow_run_id)
             self._workflow_service.update(workflow_run_id, current_step_label="Export skipped (no output service)")
             return
         workflow = self._workflow_service.get_or_raise(workflow_run_id)
         logger.info(
-            "render_export.enter workflow_run_id=%s",
+            "renderexport.phase.enter workflow_run_id=%s",
             workflow_run_id,
         )
         ad = workflow.assembled_document or {}
         if not ad.get("sections"):
+            logger.info("renderexport.phase.skippedemptydocument workflow_run_id=%s", workflow_run_id)
             self._workflow_service.update(workflow_run_id, current_step_label="Export skipped (nothing to render)")
             return
 
@@ -453,6 +527,13 @@ class WorkflowExecutor:
             "output.ready",
             {"output_id": record.output_id, "filename": filename},
         )
+        logger.info(
+            "renderexport.phase.completed workflow_run_id=%s output_id=%s filename=%s warning_count=%s",
+            workflow_run_id,
+            record.output_id,
+            filename,
+            len(render_warnings),
+        )
 
     async def _retrieve_one_section(
         self,
@@ -466,6 +547,13 @@ class WorkflowExecutor:
             section,
             document_id=document_id,
             cost_tracker=cost_tracker,
+        )
+        logger.info(
+            "retrieval.section.completed document_id=%s section_id=%s chunk_count=%s embedding_cost_usd=%s",
+            document_id,
+            section.section_id,
+            len(chunks),
+            embedding_cost_usd,
         )
         bundle = self._evidence_packager.package(section.section_id, chunks)
         bundle_dict = {
@@ -485,6 +573,13 @@ class WorkflowExecutor:
     ) -> IngestionRunResult:
         self._workflow_service.update(workflow_run_id, current_step_label="Parsing BRD document")
         file_path = Path(settings.documents_path) / document.file_path
+        logger.info(
+            "ingestion.pipeline.started workflow_run_id=%s document_id=%s file_path=%s content_type=%s",
+            workflow_run_id,
+            document.document_id,
+            file_path,
+            document.content_type,
+        )
         return await self._ingestion_orchestrator.run(
             workflow_run_id=workflow_run_id,
             document_id=document.document_id,
@@ -504,10 +599,18 @@ class WorkflowExecutor:
             },
         )
         self._workflow_service.update(workflow_run_id, observability_summary=merged)
+        logger.info(
+            "ingestion.observability.updated workflow_run_id=%s embedding_cost_usd=%s document_intelligence_cost_usd=%s page_count=%s chunk_count=%s",
+            workflow_run_id,
+            result.embedding_cost_usd,
+            result.document_intelligence_cost_usd,
+            result.page_count,
+            result.chunk_count,
+        )
 
     async def run(self, workflow_run_id: str) -> None:
         self._workflow_service.get_or_raise(workflow_run_id)
-        logger.info("workflow.started workflow_run_id=%s", workflow_run_id)
+        logger.info("workflow.run.started workflow_run_id=%s", workflow_run_id)
         self._workflow_service.update(
             workflow_run_id,
             status=WorkflowStatus.RUNNING.value,
@@ -564,10 +667,10 @@ class WorkflowExecutor:
                 )
             except Exception:
                 logger.exception(
-                    "workflow_completed_emit_failed workflow_run_id=%s",
+                    "workflow.emit.completedfailed workflow_run_id=%s",
                     workflow_run_id,
                 )
-            logger.info("workflow.completed workflow_run_id=%s", workflow_run_id)
+            logger.info("workflow.run.completed workflow_run_id=%s", workflow_run_id)
         except Exception as exc:
             logger.exception(
                 "workflow.failed workflow_run_id=%s error=%s",
@@ -587,7 +690,7 @@ class WorkflowExecutor:
                 )
             except Exception:
                 logger.exception(
-                    "workflow_failed_emit_failed workflow_run_id=%s",
+                    "workflow.emit.failedfailed workflow_run_id=%s",
                     workflow_run_id,
                 )
             # Do not re-raise: failure is persisted; terminal emit is best-effort for SSE clients.

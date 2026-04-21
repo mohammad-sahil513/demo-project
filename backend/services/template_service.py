@@ -104,7 +104,7 @@ class TemplateService:
                 preview_html=preview_html,
             )
         except Exception as exc:
-            logger.exception("template_compile_failed template_id=%s", template_id_value)
+            logger.exception("template.compile.failed template_id=%s", template_id_value)
             return self._repo.update(
                 template_id_value,
                 status=TemplateStatus.FAILED.value,
@@ -144,8 +144,8 @@ class TemplateService:
                 file_path.unlink()
             else:
                 logger.warning(
-                    "template_binary_missing",
-                    template_id=template_id_value,
-                    file_path=str(file_path),
+                    "template.binary.missing template_id=%s file_path=%s",
+                    template_id_value,
+                    str(file_path),
                 )
         return self._repo.delete(template_id_value)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from time import perf_counter
 from typing import Any
 
 from core.exceptions import SDLCBaseException
@@ -31,8 +32,7 @@ def compute_execution_waves(sections: list[SectionDefinition]) -> list[list[Sect
             # Cycle or missing dependency — fall back to deterministic single-section progress.
             fallback = sorted(remaining.values(), key=lambda x: x.execution_order)[0]
             logger.warning(
-                "Generation dependency graph stalled (cycle or unresolved dependency); "
-                "processing section_id=%s alone. Remaining_ids=%s",
+                "generation.graph.stalled detail=dependency graph stalled section_id=%s remaining_ids=%s",
                 fallback.section_id,
                 sorted(remaining.keys()),
             )
@@ -70,8 +70,21 @@ class GenerationOrchestrator:
     ) -> dict[str, dict[str, Any]]:
         ordered = sorted(sections, key=lambda s: s.execution_order)
         waves = compute_execution_waves(ordered)
+        logger.info(
+            "generation.orchestrator.start workflow_run_id=%s total_sections=%s wave_count=%s",
+            workflow_run_id,
+            len(ordered),
+            len(waves),
+        )
         results: dict[str, dict[str, Any]] = {}
-        for wave in waves:
+        for wave_index, wave in enumerate(waves, start=1):
+            logger.info(
+                "generation.wave.started workflow_run_id=%s wave_index=%s wave_size=%s section_ids=%s",
+                workflow_run_id,
+                wave_index,
+                len(wave),
+                [s.section_id for s in wave],
+            )
             tasks = [
                 self._generate_one(
                     workflow_run_id=workflow_run_id,
@@ -86,6 +99,19 @@ class GenerationOrchestrator:
             outputs = await asyncio.gather(*tasks)
             for section, out in zip(wave, outputs):
                 results[section.section_id] = out
+            failures = sum(1 for out in outputs if out.get("error"))
+            logger.info(
+                "generation.wave.completed workflow_run_id=%s wave_index=%s completed=%s failed=%s",
+                workflow_run_id,
+                wave_index,
+                len(outputs) - failures,
+                failures,
+            )
+        logger.info(
+            "generation.orchestrator.completed workflow_run_id=%s generated_sections=%s",
+            workflow_run_id,
+            len(results),
+        )
         return results
 
     @staticmethod
@@ -106,6 +132,15 @@ class GenerationOrchestrator:
         emit: EmitFn | None,
     ) -> dict[str, Any]:
         citations = citations_from_retrieval(retrieval_payload)
+        started_at = perf_counter()
+        logger.info(
+            "generation.section.started workflow_run_id=%s section_id=%s output_type=%s has_retrieval_payload=%s citation_count=%s",
+            workflow_run_id,
+            section.section_id,
+            section.output_type,
+            retrieval_payload is not None,
+            len(citations),
+        )
         if emit:
             await emit(
                 workflow_run_id,
@@ -165,7 +200,7 @@ class GenerationOrchestrator:
             }
         except Exception as exc:
             logger.exception(
-                "Unexpected error during section generation",
+                "generation.section.failed",
                 extra={"section_id": section.section_id, "workflow_run_id": workflow_run_id},
             )
             result = {
@@ -181,6 +216,17 @@ class GenerationOrchestrator:
                 "error": str(exc),
             }
         result["citations"] = citations
+        duration_ms = int((perf_counter() - started_at) * 1000)
+        logger.info(
+            "generation.section.completed workflow_run_id=%s section_id=%s output_type=%s duration_ms=%s error=%s tokens_in=%s tokens_out=%s",
+            workflow_run_id,
+            section.section_id,
+            result.get("output_type"),
+            duration_ms,
+            result.get("error"),
+            result.get("tokens_in"),
+            result.get("tokens_out"),
+        )
         if emit:
             await emit(
                 workflow_run_id,

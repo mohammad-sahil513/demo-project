@@ -87,14 +87,14 @@ class AzureDocIntelligenceClient:
                     f"{exc.response.status_code if exc.response is not None else 'unknown'}: {response_body}"
                 ) from exc
             except Exception as exc:
-                logger.exception("doc_intelligence.submit_failed error=%s", str(exc))
+                logger.exception("docintelligence.submit.failed error=%s", str(exc))
                 raise IngestionException(f"Document Intelligence submit failed: {exc}") from exc
 
             operation_location = analyze_response.headers.get("operation-location")
             if not operation_location:
                 raise IngestionException("Document Intelligence response missing operation-location header.")
             if verbose_logs_enabled():
-                logger.info("doc_intelligence.submitted operation_location=%s", operation_location)
+                logger.info("docintelligence.submit.completed operation_location=%s", operation_location)
 
             result = await self._poll_operation(client, operation_location, headers)
             return self._to_parsed_document(result)
@@ -123,11 +123,11 @@ class AzureDocIntelligenceClient:
                     f"{exc.response.status_code if exc.response is not None else 'unknown'}: {response_body}"
                 ) from exc
             except Exception as exc:
-                logger.exception("doc_intelligence.poll_failed attempt=%s error=%s", attempt + 1, str(exc))
+                logger.exception("docintelligence.poll.failed attempt=%s error=%s", attempt + 1, str(exc))
                 raise IngestionException(f"Document Intelligence polling failed: {exc}") from exc
             status = str(body.get("status", "")).lower()
             if verbose_logs_enabled():
-                logger.info("doc_intelligence.poll_status attempt=%s status=%s", attempt + 1, status)
+                logger.info("docintelligence.poll.status attempt=%s status=%s", attempt + 1, status)
             if status == "succeeded":
                 analyze_result = body.get("analyzeResult")
                 if not isinstance(analyze_result, dict):
@@ -161,7 +161,7 @@ class AzureDocIntelligenceClient:
                 ),
             )
         logger.info(
-            "doc_intelligence.analyzed page_count=%s table_count=%s language=%s text_len=%s",
+            "docintelligence.analyze.completed page_count=%s table_count=%s language=%s text_len=%s",
             page_count,
             len(tables),
             language,

@@ -45,17 +45,19 @@ async def create_workflow(
         doc_type=payload.doc_type,
     )
     if verbose_logs_enabled():
-        logger.info("workflow.create.persisted workflow_run_id=%s", record.workflow_run_id)
+        logger.info("workflows.create.completed workflow_run_id=%s", record.workflow_run_id)
     if payload.start_immediately:
         if verbose_logs_enabled():
-            logger.info("workflow.create.dispatch workflow_run_id=%s", record.workflow_run_id)
+            logger.info("workflows.dispatch.started workflow_run_id=%s", record.workflow_run_id)
         task_dispatcher.dispatch(background_tasks, workflow_executor.run, record.workflow_run_id)
     return created_response(record.model_dump(), message="Workflow created")
 
 
 @router.get("")
 async def list_workflows(workflow_service: WorkflowService = Depends(get_workflow_service)) -> object:
+    logger.info("workflows.list.started")
     items = [item.model_dump() for item in workflow_service.list_all()]
+    logger.info("workflows.list.completed total=%s", len(items))
     return success_response({"items": items, "total": len(items)})
 
 
@@ -64,7 +66,15 @@ async def get_workflow(
     workflow_run_id: str,
     workflow_service: WorkflowService = Depends(get_workflow_service),
 ) -> object:
+    logger.info("workflows.get.started workflow_run_id=%s", workflow_run_id)
     workflow = workflow_service.get_or_raise(workflow_run_id)
+    if verbose_logs_enabled():
+        logger.info(
+            "workflows.get.completed workflow_run_id=%s status=%s phase=%s",
+            workflow_run_id,
+            workflow.status,
+            workflow.current_phase,
+        )
     return success_response(workflow.model_dump())
 
 
@@ -73,6 +83,7 @@ async def get_workflow_status(
     workflow_run_id: str,
     workflow_service: WorkflowService = Depends(get_workflow_service),
 ) -> object:
+    logger.info("workflows.status.started workflow_run_id=%s", workflow_run_id)
     workflow = workflow_service.get_or_raise(workflow_run_id)
     data = {
         "workflow_run_id": workflow.workflow_run_id,
@@ -84,6 +95,12 @@ async def get_workflow_status(
         "template_id": workflow.template_id,
         "output_id": workflow.output_id,
     }
+    logger.info(
+        "workflows.status.completed workflow_run_id=%s status=%s progress=%s",
+        workflow_run_id,
+        workflow.status,
+        workflow.overall_progress_percent,
+    )
     return success_response(data)
 
 
@@ -92,6 +109,7 @@ async def get_workflow_sections(
     workflow_run_id: str,
     workflow_service: WorkflowService = Depends(get_workflow_service),
 ) -> object:
+    logger.info("workflows.sections.started workflow_run_id=%s", workflow_run_id)
     workflow = workflow_service.get_or_raise(workflow_run_id)
     data = {
         "workflow_run_id": workflow_run_id,
@@ -102,6 +120,13 @@ async def get_workflow_sections(
             {"total": 0, "completed": 0, "running": 0, "failed": 0, "pending": 0},
         ),
     }
+    logger.info(
+        "workflows.sections.completed workflow_run_id=%s total=%s completed=%s failed=%s",
+        workflow_run_id,
+        data["section_progress"].get("total", 0),
+        data["section_progress"].get("completed", 0),
+        data["section_progress"].get("failed", 0),
+    )
     return success_response(data)
 
 
@@ -110,9 +135,16 @@ async def get_workflow_observability(
     workflow_run_id: str,
     workflow_service: WorkflowService = Depends(get_workflow_service),
 ) -> object:
+    logger.info("workflows.observability.started workflow_run_id=%s", workflow_run_id)
     workflow = workflow_service.get_or_raise(workflow_run_id)
     summary = getattr(workflow, "observability_summary", {}) or {}
     data = {"workflow_run_id": workflow_run_id, **summary}
+    if verbose_logs_enabled():
+        logger.info(
+            "workflows.observability.completed workflow_run_id=%s keys=%s",
+            workflow_run_id,
+            sorted(summary.keys()),
+        )
     return success_response(data)
 
 
@@ -121,11 +153,20 @@ async def get_workflow_errors(
     workflow_run_id: str,
     workflow_service: WorkflowService = Depends(get_workflow_service),
 ) -> object:
+    logger.info("workflows.errors.started workflow_run_id=%s", workflow_run_id)
     workflow = workflow_service.get_or_raise(workflow_run_id)
+    errors = getattr(workflow, "errors", [])
+    warnings = getattr(workflow, "warnings", [])
+    logger.info(
+        "workflows.errors.completed workflow_run_id=%s errors=%s warnings=%s",
+        workflow_run_id,
+        len(errors),
+        len(warnings),
+    )
     return success_response(
         {
-            "errors": getattr(workflow, "errors", []),
-            "warnings": getattr(workflow, "warnings", []),
+            "errors": errors,
+            "warnings": warnings,
         },
     )
 
@@ -135,6 +176,7 @@ async def get_workflow_diagnostics(
     workflow_run_id: str,
     workflow_service: WorkflowService = Depends(get_workflow_service),
 ) -> object:
+    logger.info("workflows.diagnostics.started workflow_run_id=%s", workflow_run_id)
     workflow = workflow_service.get_or_raise(workflow_run_id)
     data = {
         "workflow_run_id": workflow_run_id,
@@ -149,4 +191,11 @@ async def get_workflow_diagnostics(
         "errors": getattr(workflow, "errors", []),
         "warnings": getattr(workflow, "warnings", []),
     }
+    logger.info(
+        "workflows.diagnostics.completed workflow_run_id=%s status=%s errors=%s warnings=%s",
+        workflow_run_id,
+        workflow.status,
+        len(data["errors"]),
+        len(data["warnings"]),
+    )
     return success_response(data)
