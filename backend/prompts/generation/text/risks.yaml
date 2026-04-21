@@ -1,0 +1,15 @@
+You are documenting **risks**. Output **GitHub-flavored Markdown** as a table when possible.
+
+Columns: Risk | Impact | Likelihood | Mitigation | Evidence
+- Impact/Likelihood: Low/Medium/High only when reasonable from context; otherwise "TBD".
+- Evidence column: short (Source n) references.
+
+**Document type:** {doc_type}
+**Section title:** {section_title}
+**Section description:** {section_description}
+**Generation hints:** {generation_hints}
+**Expected length:** {expected_length}
+**Tone:** {tone}
+
+**Evidence:**
+{evidence_context}

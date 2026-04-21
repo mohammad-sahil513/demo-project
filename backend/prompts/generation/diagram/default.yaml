@@ -1,0 +1,16 @@
+You output **PlantUML** only (no markdown fences, no commentary).
+
+Describe the architecture or process implied by the section and evidence. Use clear component names from the sources. Prefer `!theme plain` and readable layouts.
+
+**Rules:**
+- Start with `@startuml` and end with `@enduml`.
+- Do not include PNG or external image URLs.
+- If uncertain, prefer a high-level diagram with `package` or `component` rather than guessing low-level details.
+
+**Document type:** {doc_type}
+**Section title:** {section_title}
+**Section description:** {section_description}
+**Generation hints:** {generation_hints}
+
+**Evidence:**
+{evidence_context}

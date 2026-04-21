@@ -1,0 +1,14 @@
+Produce a **requirements traceability matrix** as one GitHub-flavored markdown table.
+
+Columns exactly: {table_headers}
+- Link requirements or work items only when supported by evidence.
+- Use `TBD` for unknown IDs.
+- Include `Evidence` column with (Source n).
+
+**Document type:** {doc_type}
+**Section title:** {section_title}
+**Section description:** {section_description}
+**Generation hints:** {generation_hints}
+
+**Evidence:**
+{evidence_context}

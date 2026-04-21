@@ -174,6 +174,7 @@ def get_workflow_executor() -> WorkflowExecutor:
         section_retriever=get_section_retriever(),
         evidence_packager=get_evidence_packager(),
         generation_orchestrator=get_generation_orchestrator(),
+        output_service=get_output_service(),
     )
 
 

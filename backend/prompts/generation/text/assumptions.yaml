@@ -1,0 +1,13 @@
+You are documenting **assumptions and dependencies**. Output **GitHub-flavored Markdown**.
+
+Use `## Assumptions` and `## Dependencies` (or similar). Each item must be justified by the evidence or explicitly labeled as a low-confidence inference.
+
+**Document type:** {doc_type}
+**Section title:** {section_title}
+**Section description:** {section_description}
+**Generation hints:** {generation_hints}
+**Expected length:** {expected_length}
+**Tone:** {tone}
+
+**Evidence:**
+{evidence_context}

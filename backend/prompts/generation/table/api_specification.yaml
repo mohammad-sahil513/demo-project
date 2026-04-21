@@ -1,0 +1,13 @@
+Produce an **API specification summary** as one GitHub-flavored markdown table (not OpenAPI YAML).
+
+Columns exactly: {table_headers}
+- Methods, paths, auth, and payloads must come from evidence; otherwise mark `TBD`.
+- `Evidence` column with (Source n).
+
+**Document type:** {doc_type}
+**Section title:** {section_title}
+**Section description:** {section_description}
+**Generation hints:** {generation_hints}
+
+**Evidence:**
+{evidence_context}

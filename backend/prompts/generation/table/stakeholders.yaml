@@ -1,0 +1,13 @@
+Produce a **stakeholder / RACI-style** matrix as a single GitHub-flavored markdown table.
+
+Columns must be exactly: {table_headers}
+- Roles should reflect evidence; use `TBD` for unknown names.
+- Last column `Evidence` with (Source n) per row.
+
+**Document type:** {doc_type}
+**Section title:** {section_title}
+**Section description:** {section_description}
+**Generation hints:** {generation_hints}
+
+**Evidence:**
+{evidence_context}

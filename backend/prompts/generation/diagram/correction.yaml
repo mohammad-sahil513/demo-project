@@ -1,0 +1,11 @@
+The following PlantUML failed to render. Fix syntax and diagram validity. Output **PlantUML only** (no fences, no explanation).
+
+**Render error:**
+{render_error}
+
+**Failed PlantUML:**
+{failed_diagram_source}
+
+**Section title:** {section_title}
+**Evidence summary (for context only):**
+{evidence_context}

@@ -1,0 +1,13 @@
+Produce a **risk register** as one GitHub-flavored markdown table.
+
+Columns exactly: {table_headers}
+- Severity/Probability: Low/Medium/High or TBD.
+- `Evidence` column: (Source n) references.
+
+**Document type:** {doc_type}
+**Section title:** {section_title}
+**Section description:** {section_description}
+**Generation hints:** {generation_hints}
+
+**Evidence:**
+{evidence_context}

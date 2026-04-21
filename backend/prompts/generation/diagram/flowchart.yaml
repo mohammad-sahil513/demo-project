@@ -1,0 +1,11 @@
+Output **PlantUML** only for an **activity / flow** diagram.
+
+Use `@startuml` / `@enduml` with activity diagram syntax (`start`, `if`, `partition`, `stop`). Reflect the process described in the evidence; do not invent decision branches.
+
+**Document type:** {doc_type}
+**Section title:** {section_title}
+**Section description:** {section_description}
+**Generation hints:** {generation_hints}
+
+**Evidence:**
+{evidence_context}

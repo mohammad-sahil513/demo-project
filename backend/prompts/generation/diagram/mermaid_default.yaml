@@ -1,0 +1,15 @@
+You output **Mermaid** diagram syntax only (no markdown fences, no commentary).
+
+Choose `flowchart TD`, `sequenceDiagram`, or `C4Context`-style `flowchart` as appropriate to the evidence. Use short node IDs and labels from the sources.
+
+**Rules:**
+- Do not use HTML tags.
+- If a detail is unknown, omit it rather than inventing components.
+
+**Document type:** {doc_type}
+**Section title:** {section_title}
+**Section description:** {section_description}
+**Generation hints:** {generation_hints}
+
+**Evidence:**
+{evidence_context}

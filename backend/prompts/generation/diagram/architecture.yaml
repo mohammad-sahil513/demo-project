@@ -1,0 +1,11 @@
+Output **PlantUML** only for a **system architecture / context** view.
+
+Use `@startuml` / `@enduml`, `!theme plain`, and `package` or `component` notation. Show major systems and primary dependencies evidenced in the text.
+
+**Document type:** {doc_type}
+**Section title:** {section_title}
+**Section description:** {section_description}
+**Generation hints:** {generation_hints}
+
+**Evidence:**
+{evidence_context}

@@ -17,6 +17,10 @@ from modules.generation.models import GenerationSectionResult
 from modules.generation.observability import merge_generation_observability
 from modules.generation.orchestrator import GenerationOrchestrator
 from modules.observability.cost_rollup import merge_full_cost_summary
+from modules.assembly.assembler import DocumentAssembler
+from modules.assembly.models import AssembledDocument
+from modules.export.renderer import ExportRenderer
+from modules.export.types import ExportDocumentInfo, ExportTemplateInfo
 from modules.retrieval.packager import EvidencePackager
 from modules.retrieval.retriever import SectionRetriever, merge_retrieval_observability
 from modules.template.inbuilt.registry import (
@@ -29,6 +33,7 @@ from modules.template.models import SectionDefinition, StyleMap
 from repositories.document_models import DocumentRecord
 from core.config import settings
 from services.event_service import EventService
+from services.output_service import OutputService
 from services.workflow_service import WorkflowService
 
 
@@ -60,6 +65,9 @@ class WorkflowExecutor:
         section_retriever: SectionRetriever | None = None,
         evidence_packager: EvidencePackager | None = None,
         generation_orchestrator: GenerationOrchestrator | None = None,
+        output_service: OutputService | None = None,
+        document_assembler: DocumentAssembler | None = None,
+        export_renderer: ExportRenderer | None = None,
     ) -> None:
         self._workflow_service = workflow_service
         self._event_service = event_service
@@ -68,6 +76,9 @@ class WorkflowExecutor:
         self._section_retriever = section_retriever
         self._evidence_packager = evidence_packager
         self._generation_orchestrator = generation_orchestrator
+        self._output_service = output_service
+        self._document_assembler = document_assembler or DocumentAssembler()
+        self._export_renderer = export_renderer or ExportRenderer(settings.storage_root)
 
     async def _run_phase(
         self,
@@ -313,10 +324,73 @@ class WorkflowExecutor:
         self._workflow_service.update(workflow_run_id, observability_summary=observability_summary)
 
     async def _phase_assembly_validation(self, workflow_run_id: str) -> None:
-        self._workflow_service.update(workflow_run_id, current_step_label="Assembly validation stub")
+        workflow = self._workflow_service.get_or_raise(workflow_run_id)
+        document = self._workflow_service.get_document(workflow.document_id)
+        section_plan = [SectionDefinition.model_validate(x) for x in (workflow.section_plan or [])]
+        gen = workflow.section_generation_results or {}
+        if not section_plan:
+            self._workflow_service.update(workflow_run_id, current_step_label="Assembly skipped (no sections)")
+            return
+        outcome = self._document_assembler.assemble(
+            document_filename=document.filename,
+            doc_type=workflow.doc_type,
+            section_plan=section_plan,
+            section_generation_results=dict(gen),
+        )
+        merged_warnings = list(workflow.warnings or []) + outcome.warnings
+        self._workflow_service.update(
+            workflow_run_id,
+            assembled_document=outcome.document.model_dump(),
+            warnings=merged_warnings,
+            current_step_label=f"Assembled {len(outcome.document.sections)} sections",
+        )
 
     async def _phase_render_export(self, workflow_run_id: str) -> None:
-        self._workflow_service.update(workflow_run_id, current_step_label="Render export stub")
+        if self._output_service is None:
+            self._workflow_service.update(workflow_run_id, current_step_label="Export skipped (no output service)")
+            return
+        workflow = self._workflow_service.get_or_raise(workflow_run_id)
+        ad = workflow.assembled_document or {}
+        if not ad.get("sections"):
+            self._workflow_service.update(workflow_run_id, current_step_label="Export skipped (nothing to render)")
+            return
+
+        template = self._workflow_service.get_template(workflow.template_id)
+        document = self._workflow_service.get_document(workflow.document_id)
+        assembled = AssembledDocument.model_validate(ad)
+        style_map = StyleMap.model_validate(workflow.style_map or {})
+        out_path, filename, export_warnings = self._export_renderer.render(
+            workflow_run_id=workflow_run_id,
+            document=ExportDocumentInfo(filename=document.filename),
+            template=ExportTemplateInfo(
+                template_id=template.template_id,
+                template_source=template.template_source,
+                file_path=template.file_path,
+            ),
+            assembled=assembled,
+            style_map=style_map,
+            sheet_map=dict(workflow.sheet_map or {}),
+        )
+        wf2 = self._workflow_service.get_or_raise(workflow_run_id)
+        render_warnings = list(wf2.warnings or []) + export_warnings
+        record = self._output_service.create(
+            workflow_run_id=workflow_run_id,
+            document_id=document.document_id,
+            doc_type=workflow.doc_type,
+            file_path=out_path,
+            filename=filename,
+        )
+        self._workflow_service.update(
+            workflow_run_id,
+            output_id=record.output_id,
+            warnings=render_warnings,
+            current_step_label="Output file ready",
+        )
+        await self._event_service.emit(
+            workflow_run_id,
+            "output.ready",
+            {"output_id": record.output_id, "filename": filename},
+        )
 
     async def _retrieve_one_section(
         self,
