@@ -9,7 +9,7 @@ import httpx
 
 from core.config import settings
 from core.exceptions import IngestionException
-from core.logging import get_logger
+from core.logging import get_logger, verbose_logs_enabled
 
 logger = get_logger(__name__)
 
@@ -62,14 +62,39 @@ class AzureDocIntelligenceClient:
             "Ocp-Apim-Subscription-Key": self._api_key,
             "Content-Type": content_type,
         }
+        if verbose_logs_enabled():
+            logger.info(
+                "doc_intelligence.submit endpoint=%s content_type=%s payload_bytes=%s api_version=%s",
+                self._endpoint,
+                content_type,
+                len(payload),
+                self._api_version,
+            )
 
         async with httpx.AsyncClient(timeout=120.0) as client:
-            analyze_response = await client.post(analyze_url, headers=headers, content=payload)
-            analyze_response.raise_for_status()
+            try:
+                analyze_response = await client.post(analyze_url, headers=headers, content=payload)
+                analyze_response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                response_body = exc.response.text[:4000] if exc.response is not None else ""
+                logger.exception(
+                    "doc_intelligence.submit_http_error status_code=%s body=%s",
+                    exc.response.status_code if exc.response is not None else "unknown",
+                    response_body,
+                )
+                raise IngestionException(
+                    f"Document Intelligence submit failed with status "
+                    f"{exc.response.status_code if exc.response is not None else 'unknown'}: {response_body}"
+                ) from exc
+            except Exception as exc:
+                logger.exception("doc_intelligence.submit_failed error=%s", str(exc))
+                raise IngestionException(f"Document Intelligence submit failed: {exc}") from exc
 
             operation_location = analyze_response.headers.get("operation-location")
             if not operation_location:
                 raise IngestionException("Document Intelligence response missing operation-location header.")
+            if verbose_logs_enabled():
+                logger.info("doc_intelligence.submitted operation_location=%s", operation_location)
 
             result = await self._poll_operation(client, operation_location, headers)
             return self._to_parsed_document(result)
@@ -80,11 +105,29 @@ class AzureDocIntelligenceClient:
         operation_location: str,
         headers: dict[str, str],
     ) -> dict[str, Any]:
-        for _ in range(60):
-            response = await client.get(operation_location, headers=headers)
-            response.raise_for_status()
-            body = response.json()
+        for attempt in range(60):
+            try:
+                response = await client.get(operation_location, headers=headers)
+                response.raise_for_status()
+                body = response.json()
+            except httpx.HTTPStatusError as exc:
+                response_body = exc.response.text[:4000] if exc.response is not None else ""
+                logger.exception(
+                    "doc_intelligence.poll_http_error attempt=%s status_code=%s body=%s",
+                    attempt + 1,
+                    exc.response.status_code if exc.response is not None else "unknown",
+                    response_body,
+                )
+                raise IngestionException(
+                    f"Document Intelligence polling failed with status "
+                    f"{exc.response.status_code if exc.response is not None else 'unknown'}: {response_body}"
+                ) from exc
+            except Exception as exc:
+                logger.exception("doc_intelligence.poll_failed attempt=%s error=%s", attempt + 1, str(exc))
+                raise IngestionException(f"Document Intelligence polling failed: {exc}") from exc
             status = str(body.get("status", "")).lower()
+            if verbose_logs_enabled():
+                logger.info("doc_intelligence.poll_status attempt=%s status=%s", attempt + 1, status)
             if status == "succeeded":
                 analyze_result = body.get("analyzeResult")
                 if not isinstance(analyze_result, dict):
@@ -117,7 +160,13 @@ class AzureDocIntelligenceClient:
                     column_count=int(table.get("columnCount") or 0),
                 ),
             )
-        logger.info("doc_intelligence_analyzed", page_count=page_count, table_count=len(tables))
+        logger.info(
+            "doc_intelligence.analyzed page_count=%s table_count=%s language=%s text_len=%s",
+            page_count,
+            len(tables),
+            language,
+            len(content),
+        )
         return ParsedDocument(
             full_text=content,
             page_count=page_count,

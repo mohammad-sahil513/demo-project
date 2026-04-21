@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from core.constants import DOCUMENT_INTELLIGENCE_USD_PER_PAGE
+
+load_dotenv()
 
 
 class Settings(BaseSettings):
@@ -16,6 +19,8 @@ class Settings(BaseSettings):
     app_name: str = "ai-sdlc-backend"
     app_env: str = "development"
     app_debug: bool = True
+    log_level: str = "INFO"
+    logs_verbose: bool = False
     storage_root: Path = Field(default=Path("storage"))
 
     api_prefix: str = "/api"

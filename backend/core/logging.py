@@ -8,11 +8,19 @@ from pathlib import Path
 from core.config import settings
 
 
-def configure_logging(level: int = logging.INFO) -> None:
+def configure_logging(level: int | None = None) -> None:
+    resolved_level_name = (settings.log_level or "").upper()
+    resolved_level = getattr(logging, resolved_level_name, logging.INFO)
+    if level is not None:
+        resolved_level = level
     logging.basicConfig(
-        level=level,
+        level=resolved_level,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
+
+
+def verbose_logs_enabled() -> bool:
+    return bool(settings.logs_verbose)
 
 
 def get_logger(name: str) -> logging.Logger:

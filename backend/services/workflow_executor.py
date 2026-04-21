@@ -89,6 +89,11 @@ class WorkflowExecutor:
         phase: WorkflowPhase,
         fn: Callable[[str], Awaitable[None]],
     ) -> None:
+        logger.info(
+            "phase.started workflow_run_id=%s phase=%s",
+            workflow_run_id,
+            phase.value,
+        )
         self._workflow_service.update(
             workflow_run_id,
             current_phase=phase.value,
@@ -102,9 +107,22 @@ class WorkflowExecutor:
 
         for attempt in range(2):
             try:
+                logger.info(
+                    "phase.attempt workflow_run_id=%s phase=%s attempt=%s",
+                    workflow_run_id,
+                    phase.value,
+                    attempt + 1,
+                )
                 await fn(workflow_run_id)
                 break
             except Exception as exc:
+                logger.exception(
+                    "phase.attempt_failed workflow_run_id=%s phase=%s attempt=%s error=%s",
+                    workflow_run_id,
+                    phase.value,
+                    attempt + 1,
+                    str(exc),
+                )
                 if attempt == 0:
                     await asyncio.sleep(2)
                     continue
@@ -125,6 +143,12 @@ class WorkflowExecutor:
             "phase.completed",
             {"phase": phase.value, "duration_ms": 0},
         )
+        logger.info(
+            "phase.completed workflow_run_id=%s phase=%s progress=%s",
+            workflow_run_id,
+            phase.value,
+            progress,
+        )
 
     async def _phase_input_preparation(self, workflow_run_id: str) -> None:
         self._workflow_service.update(workflow_run_id, current_step_label="Initializing workflow")
@@ -132,6 +156,11 @@ class WorkflowExecutor:
     async def _phase_ingestion(self, workflow_run_id: str) -> None:
         workflow = self._workflow_service.get_or_raise(workflow_run_id)
         document = self._workflow_service.get_document(workflow.document_id)
+        logger.info(
+            "ingestion.enter workflow_run_id=%s document_id=%s",
+            workflow_run_id,
+            workflow.document_id,
+        )
 
         if self._ingestion_orchestrator is None or self._ingestion_coordinator is None:
             self._workflow_service.update(workflow_run_id, current_step_label="Ingestion dependencies not configured")
@@ -165,6 +194,11 @@ class WorkflowExecutor:
     async def _phase_template_preparation(self, workflow_run_id: str) -> None:
         workflow = self._workflow_service.get_or_raise(workflow_run_id)
         template = self._workflow_service.get_template(workflow.template_id)
+        logger.info(
+            "template_preparation.enter workflow_run_id=%s template_id=%s",
+            workflow_run_id,
+            workflow.template_id,
+        )
 
         if is_inbuilt_template_id(template.template_id):
             doc_type = doc_type_for_inbuilt_template(template.template_id)
@@ -200,6 +234,11 @@ class WorkflowExecutor:
     async def _phase_retrieval(self, workflow_run_id: str) -> None:
         workflow = self._workflow_service.get_or_raise(workflow_run_id)
         section_plan = [SectionDefinition.model_validate(item) for item in (workflow.section_plan or [])]
+        logger.info(
+            "retrieval.enter workflow_run_id=%s sections=%s",
+            workflow_run_id,
+            len(section_plan),
+        )
         if not section_plan:
             self._workflow_service.update(workflow_run_id, current_step_label="Retrieval skipped (no sections)")
             return
@@ -256,6 +295,11 @@ class WorkflowExecutor:
     async def _phase_generation(self, workflow_run_id: str) -> None:
         workflow = self._workflow_service.get_or_raise(workflow_run_id)
         section_plan = [SectionDefinition.model_validate(item) for item in (workflow.section_plan or [])]
+        logger.info(
+            "generation.enter workflow_run_id=%s sections=%s",
+            workflow_run_id,
+            len(section_plan),
+        )
         if not section_plan:
             self._workflow_service.update(workflow_run_id, current_step_label="Generation skipped (no sections)")
             return
@@ -325,10 +369,21 @@ class WorkflowExecutor:
             total_llm_calls=cost_tracker.total_llm_calls,
         )
         self._workflow_service.update(workflow_run_id, observability_summary=observability_summary)
+        logger.info(
+            "generation.completed workflow_run_id=%s completed=%s failed=%s",
+            workflow_run_id,
+            completed,
+            failed,
+        )
 
     async def _phase_assembly_validation(self, workflow_run_id: str) -> None:
         workflow = self._workflow_service.get_or_raise(workflow_run_id)
         document = self._workflow_service.get_document(workflow.document_id)
+        logger.info(
+            "assembly.enter workflow_run_id=%s document_id=%s",
+            workflow_run_id,
+            workflow.document_id,
+        )
         section_plan = [SectionDefinition.model_validate(x) for x in (workflow.section_plan or [])]
         gen = workflow.section_generation_results or {}
         if not section_plan:
@@ -353,6 +408,10 @@ class WorkflowExecutor:
             self._workflow_service.update(workflow_run_id, current_step_label="Export skipped (no output service)")
             return
         workflow = self._workflow_service.get_or_raise(workflow_run_id)
+        logger.info(
+            "render_export.enter workflow_run_id=%s",
+            workflow_run_id,
+        )
         ad = workflow.assembled_document or {}
         if not ad.get("sections"):
             self._workflow_service.update(workflow_run_id, current_step_label="Export skipped (nothing to render)")
@@ -448,6 +507,7 @@ class WorkflowExecutor:
 
     async def run(self, workflow_run_id: str) -> None:
         self._workflow_service.get_or_raise(workflow_run_id)
+        logger.info("workflow.started workflow_run_id=%s", workflow_run_id)
         self._workflow_service.update(
             workflow_run_id,
             status=WorkflowStatus.RUNNING.value,
@@ -507,7 +567,13 @@ class WorkflowExecutor:
                     "workflow_completed_emit_failed workflow_run_id=%s",
                     workflow_run_id,
                 )
+            logger.info("workflow.completed workflow_run_id=%s", workflow_run_id)
         except Exception as exc:
+            logger.exception(
+                "workflow.failed workflow_run_id=%s error=%s",
+                workflow_run_id,
+                str(exc),
+            )
             self._workflow_service.update(
                 workflow_run_id,
                 status=WorkflowStatus.FAILED.value,

@@ -6,11 +6,13 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel, ConfigDict
 
 from api.deps import get_task_dispatcher, get_workflow_executor, get_workflow_service
+from core.logging import get_logger, verbose_logs_enabled
 from core.response import created_response, success_response
 from services.workflow_executor import WorkflowExecutor
 from services.workflow_service import WorkflowService
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 class WorkflowCreateRequest(BaseModel):
@@ -29,12 +31,24 @@ async def create_workflow(
     workflow_executor: WorkflowExecutor = Depends(get_workflow_executor),
     task_dispatcher=Depends(get_task_dispatcher),
 ) -> object:
+    if verbose_logs_enabled():
+        logger.info(
+            "workflow.create.request document_id=%s template_id=%s doc_type=%s start_immediately=%s",
+            payload.document_id,
+            payload.template_id,
+            payload.doc_type,
+            payload.start_immediately,
+        )
     record = workflow_service.create(
         document_id=payload.document_id,
         template_id=payload.template_id,
         doc_type=payload.doc_type,
     )
+    if verbose_logs_enabled():
+        logger.info("workflow.create.persisted workflow_run_id=%s", record.workflow_run_id)
     if payload.start_immediately:
+        if verbose_logs_enabled():
+            logger.info("workflow.create.dispatch workflow_run_id=%s", record.workflow_run_id)
         task_dispatcher.dispatch(background_tasks, workflow_executor.run, record.workflow_run_id)
     return created_response(record.model_dump(), message="Workflow created")
 
