@@ -76,7 +76,7 @@ def _sample_parsed_document() -> ParsedDocument:
 
 def test_chunker_creates_table_and_overlapping_text_chunks() -> None:
     parsed = _sample_parsed_document()
-    chunker = DocumentChunker(chunk_size=40, overlap=10)
+    chunker = DocumentChunker(chunk_size=40, overlap=10, token_mode="word")
 
     chunks = chunker.chunk(document_id="doc-1", workflow_run_id="wf-1", parsed=parsed)
 

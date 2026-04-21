@@ -30,6 +30,18 @@ export interface WorkflowCreateData {
   [key: string]: unknown
 }
 
+export interface CitationDto {
+  path: string
+  page?: number | null
+  content_type?: string
+  chunk_id: string
+}
+
+export interface SectionEvidenceBundleDto {
+  context_text?: string
+  citations?: CitationDto[]
+}
+
 export interface AssembledSectionRow {
   section_id: string
   title: string
@@ -57,6 +69,7 @@ export interface WorkflowStatusData extends Record<string, unknown> {
   template_id: string | null
   output_id: string | null
   assembled_document?: AssembledDocumentData | null
+  section_retrieval_results?: Record<string, SectionEvidenceBundleDto>
 }
 
 export interface TemplateDto {

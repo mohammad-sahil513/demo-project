@@ -1,5 +1,48 @@
-import client from './client'
+import client, { baseURL } from './client'
 import type { WorkflowCreateData, WorkflowStatusData } from './types'
+
+export interface WorkflowSseEvent {
+  type: string
+  workflow_run_id: string
+  timestamp?: string
+  [key: string]: unknown
+}
+
+export interface SubscribeWorkflowEventsHandlers {
+  onEvent?: (event: WorkflowSseEvent) => void
+  onOpen?: () => void
+  onError?: (ev: Event) => void
+}
+
+export function subscribeToWorkflowEvents(
+  workflowRunId: string,
+  handlers: SubscribeWorkflowEventsHandlers = {}
+): { close: () => void; eventSource: EventSource } {
+  const url = `${baseURL}/workflow-runs/${encodeURIComponent(workflowRunId)}/events`
+  const es = new EventSource(url)
+
+  es.onopen = () => handlers.onOpen?.()
+
+  es.onmessage = (e: MessageEvent<string>) => {
+    try {
+      const parsed = JSON.parse(e.data) as WorkflowSseEvent
+      if (parsed && typeof parsed.type === 'string') {
+        handlers.onEvent?.(parsed)
+      }
+    } catch {
+      /* ignore non-JSON payloads */
+    }
+  }
+
+  es.onerror = (ev) => handlers.onError?.(ev)
+
+  return {
+    close: () => {
+      es.close()
+    },
+    eventSource: es,
+  }
+}
 
 export interface CreateWorkflowPayload {
   document_id: string

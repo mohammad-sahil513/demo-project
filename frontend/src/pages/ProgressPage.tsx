@@ -3,7 +3,22 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowRight, RefreshCw, AlertCircle } from 'lucide-react'
 import { ProgressBar } from '../components/progress/ProgressBar'
 import { useJobStore, type DocType } from '../store/useJobStore'
-import { getWorkflowStatus, getWorkflow } from '../api/workflowApi'
+import { getWorkflowStatus, getWorkflow, subscribeToWorkflowEvents } from '../api/workflowApi'
+
+const POLL_DEBOUNCE_MS = 320
+/** If every SSE connection is still CLOSED after this delay following an error, use polling only. */
+const SSE_ALL_CLOSED_CHECK_MS = 2000
+/** While SSE is primary, full poll occasionally so quiet workflows stay fresh. */
+const SSE_SAFETY_POLL_MS = 30_000
+
+type WorkflowRunStatus = Awaited<ReturnType<typeof getWorkflowStatus>>
+
+function docTypeForWorkflowRunId(
+  runs: Partial<Record<DocType, string>>,
+  workflowRunId: string
+): DocType | undefined {
+  return (['PDD', 'SDD', 'UAT'] as const).find((d) => runs[d] === workflowRunId)
+}
 
 function backendStatusUi(s: string | undefined): 'running' | 'completed' | 'failed' {
   const u = (s || '').toUpperCase()
@@ -34,30 +49,107 @@ export function ProgressPage() {
   } = useJobStore()
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const statusByDocRef = useRef<Partial<Record<DocType, WorkflowRunStatus>>>({})
+  const pollRef = useRef<() => Promise<void>>(async () => {})
 
-  const loadCompletedOutputs = useCallback(() => {
-    ;(async () => {
-      const { selectedDocs: docs, workflowRunByType: runs, setWorkflowDetail, setDocuments, setActiveDoc } =
-        useJobStore.getState()
-      const out: { type: DocType; sections: { section_id: string; title: string }[] }[] = []
-      for (const doc of docs) {
-        const runId = runs[doc]
-        if (!runId) continue
-        const w = await getWorkflow(runId)
-        setWorkflowDetail(doc, w)
-        out.push({
-          type: doc,
-          sections:
-            w.assembled_document?.sections?.map((s) => ({
-              section_id: s.section_id,
-              title: s.title,
-            })) ?? [],
-        })
-      }
-      setDocuments(out)
-      if (out.length > 0) setActiveDoc(out[0].type)
-    })().catch(() => {})
+  const loadCompletedOutputs = useCallback(async () => {
+    const { selectedDocs: docs, workflowRunByType: runs, setWorkflowDetail, setDocuments, setActiveDoc } =
+      useJobStore.getState()
+    const out: { type: DocType; sections: { section_id: string; title: string }[] }[] = []
+    for (const doc of docs) {
+      const runId = runs[doc]
+      if (!runId) continue
+      const w = await getWorkflow(runId)
+      setWorkflowDetail(doc, w)
+      out.push({
+        type: doc,
+        sections:
+          w.assembled_document?.sections?.map((s) => ({
+            section_id: s.section_id,
+            title: s.title,
+          })) ?? [],
+      })
+    }
+    setDocuments(out)
+    if (out.length > 0) setActiveDoc(out[0].type)
   }, [])
+
+  const reconcileFromSnapshot = useCallback(async () => {
+    const { selectedDocs: docs, workflowRunByType: runs } = useJobStore.getState()
+    if (docs.length === 0) return
+
+    const snap = statusByDocRef.current
+    const denom = docs.filter((d) => runs[d]).length
+    let snapshotIncomplete = false
+    let sumProgress = 0
+    const stepParts: string[] = []
+    let anyFailed = false
+
+    for (const doc of docs) {
+      if (!runs[doc]) continue
+      const st = snap[doc]
+      if (!st) {
+        snapshotIncomplete = true
+        sumProgress += 0
+        stepParts.push(`${doc}: …`)
+        setPerTypeProgress(doc, 0, 'Waiting for status…')
+        continue
+      }
+
+      const p = st.overall_progress_percent ?? 0
+      sumProgress += p
+      const label = st.current_step_label || st.current_phase || '…'
+      stepParts.push(`${doc}: ${label}`)
+      setPerTypeProgress(doc, p, label)
+
+      if (backendStatusUi(st.status) === 'failed') anyFailed = true
+    }
+
+    const avgProgress = denom > 0 ? Math.round(sumProgress / denom) : 0
+
+    setProgress(avgProgress, stepParts.join(' · '))
+
+    if (anyFailed) {
+      const failedDoc = docs.find((doc) => {
+        const st = snap[doc]
+        return st && backendStatusUi(st.status) === 'failed'
+      })
+      setError(
+        failedDoc
+          ? `Pipeline failed (${failedDoc}). Check backend logs.`
+          : 'Pipeline failed. Check backend logs.'
+      )
+      setStatus('failed')
+      if (intervalRef.current) clearInterval(intervalRef.current)
+      intervalRef.current = null
+      return
+    }
+
+    const allCompleted =
+      docs.length > 0 &&
+      docs.every((d) => {
+        const st = snap[d]
+        return runs[d] && st && backendStatusUi(st.status) === 'completed'
+      })
+
+    if (allCompleted && docs.every((d) => runs[d])) {
+      setStatus('completed')
+      try {
+        await loadCompletedOutputs()
+      } catch {
+        /* ignore */
+      }
+      if (intervalRef.current) clearInterval(intervalRef.current)
+      intervalRef.current = null
+      return
+    }
+
+    setStatus('running')
+
+    if (snapshotIncomplete) {
+      void pollRef.current()
+    }
+  }, [setProgress, setPerTypeProgress, setStatus, setError, loadCompletedOutputs])
 
   const poll = useCallback(async () => {
     const { selectedDocs: docs, workflowRunByType: runs } = useJobStore.getState()
@@ -66,67 +158,45 @@ export function ProgressPage() {
       const results = await Promise.all(
         docs.map(async (doc) => {
           const id = runs[doc]
-          if (!id) return { doc, st: null as Awaited<ReturnType<typeof getWorkflowStatus>> | null }
+          if (!id) return { doc, st: null as WorkflowRunStatus | null }
           const st = await getWorkflowStatus(id)
           return { doc, st }
         })
       )
 
-      const progressValues: number[] = []
-      const stepParts: string[] = []
-      let anyFailed = false
-
       for (const { doc, st } of results) {
-        if (!st) continue
-        const p = st.overall_progress_percent ?? 0
-        progressValues.push(p)
-        const label = st.current_step_label || st.current_phase || '…'
-        stepParts.push(`${doc}: ${label}`)
-        setPerTypeProgress(doc, p, label)
-
-        const u = backendStatusUi(st.status)
-        if (u === 'failed') anyFailed = true
+        if (st) statusByDocRef.current[doc] = st
       }
 
-      const avgProgress = progressValues.length
-        ? Math.round(progressValues.reduce((sum, value) => sum + value, 0) / progressValues.length)
-        : 0
-
-      setProgress(avgProgress, stepParts.join(' · '))
-
-      if (anyFailed) {
-        const failedDoc = results.find(({ st }) => st && backendStatusUi(st.status) === 'failed')
-        setError(
-          failedDoc?.st
-            ? `Pipeline failed (${failedDoc.doc}). Check backend logs.`
-            : 'Pipeline failed. Check backend logs.'
-        )
-        setStatus('failed')
-        if (intervalRef.current) clearInterval(intervalRef.current)
-        intervalRef.current = null
-        return
-      }
-
-      const allCompleted =
-        results.length >= docs.length &&
-        results.every(({ st }) => st && backendStatusUi(st.status) === 'completed')
-
-      if (allCompleted && docs.every((d) => runs[d])) {
-        setStatus('completed')
-        await loadCompletedOutputs()
-        if (intervalRef.current) clearInterval(intervalRef.current)
-        intervalRef.current = null
-      } else {
-        setStatus('running')
-      }
+      await reconcileFromSnapshot()
     } catch {
       // network hiccup
     }
-  }, [setProgress, setPerTypeProgress, setStatus, setError, loadCompletedOutputs])
+  }, [reconcileFromSnapshot])
+
+  pollRef.current = poll
+
+  const refreshSingleRun = useCallback(
+    async (workflowRunId: string) => {
+      const { workflowRunByType: runs } = useJobStore.getState()
+      const doc = docTypeForWorkflowRunId(runs, workflowRunId)
+      if (!doc) return
+      try {
+        const st = await getWorkflowStatus(workflowRunId)
+        statusByDocRef.current[doc] = st
+        await reconcileFromSnapshot()
+      } catch {
+        void poll()
+      }
+    },
+    [reconcileFromSnapshot, poll]
+  )
 
   const startPolling = useCallback(() => {
-    poll()
-    intervalRef.current = setInterval(poll, 2500)
+    void poll()
+    intervalRef.current = setInterval(() => {
+      void poll()
+    }, 2500)
   }, [poll])
 
   const stopPolling = () => {
@@ -143,15 +213,110 @@ export function ProgressPage() {
       navigate('/')
       return
     }
-    if (status === 'running') {
-      startPolling()
+    if (status !== 'running') {
+      return () => {}
     }
-    return () => stopPolling()
-  }, [navigate, status, startPolling])
+
+    let cancelled = false
+    const closeSubscriptions: Array<() => void> = []
+    const eventSources: EventSource[] = []
+    const debounceByRunId: Record<string, ReturnType<typeof setTimeout>> = {}
+    let fallbackCheckTimer: ReturnType<typeof setTimeout> | null = null
+    let safetyPollTimer: ReturnType<typeof setInterval> | null = null
+
+    const clearRunDebounces = () => {
+      for (const t of Object.values(debounceByRunId)) clearTimeout(t)
+      for (const k of Object.keys(debounceByRunId)) delete debounceByRunId[k]
+    }
+
+    const scheduleDebouncedRefresh = (runId: string) => {
+      const existing = debounceByRunId[runId]
+      if (existing) clearTimeout(existing)
+      debounceByRunId[runId] = setTimeout(() => {
+        delete debounceByRunId[runId]
+        if (!cancelled) void refreshSingleRun(runId)
+      }, POLL_DEBOUNCE_MS)
+    }
+
+    const scheduleFallbackIfAllStreamsDead = () => {
+      if (fallbackCheckTimer) clearTimeout(fallbackCheckTimer)
+      fallbackCheckTimer = setTimeout(() => {
+        fallbackCheckTimer = null
+        if (cancelled || eventSources.length === 0) return
+        const allClosed = eventSources.every((es) => es.readyState === EventSource.CLOSED)
+        if (allClosed && !intervalRef.current) {
+          clearRunDebounces()
+          closeSubscriptions.forEach((c) => c())
+          closeSubscriptions.length = 0
+          eventSources.length = 0
+          if (safetyPollTimer) {
+            clearInterval(safetyPollTimer)
+            safetyPollTimer = null
+          }
+          startPolling()
+        }
+      }, SSE_ALL_CLOSED_CHECK_MS)
+    }
+
+    const setup = async () => {
+      await poll()
+      if (cancelled) return
+
+      for (const doc of docs) {
+        const runId = runs[doc]
+        if (!runId) continue
+        const { close, eventSource } = subscribeToWorkflowEvents(runId, {
+          onOpen: () => {
+            // Defer: this handler can run before `eventSources.push(eventSource)` in this loop iteration.
+            window.setTimeout(() => {
+              if (
+                cancelled ||
+                !fallbackCheckTimer ||
+                eventSources.length === 0 ||
+                !eventSources.every((es) => es.readyState === EventSource.OPEN)
+              ) {
+                return
+              }
+              clearTimeout(fallbackCheckTimer)
+              fallbackCheckTimer = null
+            }, 0)
+          },
+          onEvent: (ev) => {
+            const wid = typeof ev.workflow_run_id === 'string' ? ev.workflow_run_id : runId
+            if (ev.type === 'workflow.failed' || ev.type === 'workflow.completed') {
+              void refreshSingleRun(wid)
+              return
+            }
+            scheduleDebouncedRefresh(wid)
+          },
+          onError: () => {
+            scheduleFallbackIfAllStreamsDead()
+          },
+        })
+        closeSubscriptions.push(close)
+        eventSources.push(eventSource)
+      }
+
+      safetyPollTimer = setInterval(() => {
+        if (!cancelled && !intervalRef.current) void poll()
+      }, SSE_SAFETY_POLL_MS)
+    }
+
+    void setup()
+
+    return () => {
+      cancelled = true
+      if (fallbackCheckTimer) clearTimeout(fallbackCheckTimer)
+      if (safetyPollTimer) clearInterval(safetyPollTimer)
+      clearRunDebounces()
+      closeSubscriptions.forEach((c) => c())
+      stopPolling()
+    }
+  }, [navigate, status, startPolling, poll, refreshSingleRun])
 
   useEffect(() => {
     if (status === 'completed' && documents.length === 0) {
-      loadCompletedOutputs()
+      void loadCompletedOutputs().catch(() => {})
     }
   }, [status, documents.length, loadCompletedOutputs])
 
@@ -172,7 +337,7 @@ export function ProgressPage() {
         </div>
       </div>
 
-      <div className="flex-1 flex items-center justify-center px-8">
+      <div className="flex flex-1 items-center justify-center px-8">
         <div className="w-full max-w-3xl py-20">
           {status === 'failed' ? (
             <div className="animate-fade-in">

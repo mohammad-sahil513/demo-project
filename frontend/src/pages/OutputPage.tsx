@@ -1,12 +1,14 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { DocumentTabs } from '../components/output/DocumentTabs'
 import { SectionSidebar } from '../components/output/SectionSidebar'
 import { DocxViewer } from '../components/output/DocxViewer'
 import { DownloadPanel } from '../components/output/DownloadPanel'
+import { CitationPanel } from '../components/output/CitationPanel'
 import { useJobStore, type DocType } from '../store/useJobStore'
 import { getWorkflow } from '../api/workflowApi'
+import type { CitationDto } from '../api/types'
 
 export function OutputPage() {
   const navigate = useNavigate()
@@ -14,12 +16,21 @@ export function OutputPage() {
     selectedDocs,
     workflowRunByType,
     documents,
+    activDoc,
+    activeSectionId,
+    workflowDetailByType,
     setDocuments,
     setWorkflowDetail,
     setActiveDoc,
     setActiveSectionId,
     setSectionContent,
   } = useJobStore()
+
+  const citationRows = useMemo((): CitationDto[] => {
+    if (!activDoc || !activeSectionId) return []
+    const bundle = workflowDetailByType[activDoc]?.section_retrieval_results?.[activeSectionId]
+    return bundle?.citations ?? []
+  }, [activDoc, activeSectionId, workflowDetailByType])
 
   useEffect(() => {
     const hasRuns = selectedDocs.some((d) => workflowRunByType[d])
@@ -115,8 +126,11 @@ export function OutputPage() {
           <SectionSidebar />
         </div>
 
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <DocxViewer />
+        <div className="flex-1 flex min-w-0 overflow-hidden">
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+            <DocxViewer />
+          </div>
+          <CitationPanel citations={citationRows} />
         </div>
       </div>
 

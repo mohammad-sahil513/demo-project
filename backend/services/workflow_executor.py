@@ -32,9 +32,12 @@ from modules.template.inbuilt.registry import (
 from modules.template.models import SectionDefinition, StyleMap
 from repositories.document_models import DocumentRecord
 from core.config import settings
+from core.logging import get_logger
 from services.event_service import EventService
 from services.output_service import OutputService
 from services.workflow_service import WorkflowService
+
+logger = get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -493,20 +496,32 @@ class WorkflowExecutor:
             workflow = self._workflow_service.get_or_raise(workflow_run_id)
             summary = getattr(workflow, "observability_summary", None) or {}
             total_cost = float(summary.get("total_cost_usd", 0.0))
-            await self._event_service.emit(
-                workflow_run_id,
-                "workflow.completed",
-                {"output_id": workflow.output_id, "total_cost_usd": total_cost},
-            )
+            try:
+                await self._event_service.emit(
+                    workflow_run_id,
+                    "workflow.completed",
+                    {"output_id": workflow.output_id, "total_cost_usd": total_cost},
+                )
+            except Exception:
+                logger.exception(
+                    "workflow_completed_emit_failed workflow_run_id=%s",
+                    workflow_run_id,
+                )
         except Exception as exc:
             self._workflow_service.update(
                 workflow_run_id,
                 status=WorkflowStatus.FAILED.value,
                 current_step_label=str(exc),
             )
-            await self._event_service.emit(
-                workflow_run_id,
-                "workflow.failed",
-                {"error": str(exc)},
-            )
-            raise
+            try:
+                await self._event_service.emit(
+                    workflow_run_id,
+                    "workflow.failed",
+                    {"error": str(exc)},
+                )
+            except Exception:
+                logger.exception(
+                    "workflow_failed_emit_failed workflow_run_id=%s",
+                    workflow_run_id,
+                )
+            # Do not re-raise: failure is persisted; terminal emit is best-effort for SSE clients.

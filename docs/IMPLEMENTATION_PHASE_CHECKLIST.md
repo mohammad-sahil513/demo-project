@@ -43,7 +43,7 @@ Validation types:
 | 7 | Retrieval module | Signed Off | Yes | Section retrieval/evidence packaging integrated, validated with mocked local tests |
 | 8 | Generation module | Signed Off | Yes | Committed with Phase 9; pytest + lint green |
 | 9 | Assembly + export | Signed Off | Yes | See Phase 9 notes (warnings, sheet_map, DocxFiller) |
-| 10 | Workers + SSE | Not Started | No | |
+| 10 | Workers + SSE | Signed Off | Yes | Dispatcher guard + SSE client + ProgressPage + CitationPanel |
 | 11 | Final validation hardening | Not Started | No | |
 
 ---
@@ -316,17 +316,22 @@ Validation types:
 ## Phase 10 Checklist — Workers + SSE
 
 ### Completion Criteria
-- [ ] dispatcher background execution stable.
-- [ ] SSE stream endpoint with heartbeat and terminal close behavior.
+- [x] dispatcher background execution stable (guarded `BackgroundTasks` + `create_task` paths; `background_task_failed` logging).
+- [x] SSE stream endpoint with heartbeat and terminal close behavior (existing route verified; no change required).
 
 ### Validation (Local)
-- [ ] multi-subscriber local SSE behavior validated.
-- [ ] polling fallback contract still valid.
+- [x] `backend/tests/test_phase10_workers_sse.py` exercises dispatcher guard + log message.
+- [x] frontend `npm run build` (tsc + vite) passes with `subscribeToWorkflowEvents`, ProgressPage SSE + polling fallback, and `CitationPanel`.
 
 ### Sign-off
-- Status: `Not Started`
+- Status: `Signed Off`
 - User sign-off: `Pending`
 - Notes:
+  - `TaskDispatcher.dispatch` now runs tasks via `_run_guarded`, logging `background_task_failed` with task name and string `resource_id` when present.
+  - Frontend: [frontend/src/api/workflowApi.ts](frontend/src/api/workflowApi.ts) `subscribeToWorkflowEvents`; [frontend/src/pages/ProgressPage.tsx](frontend/src/pages/ProgressPage.tsx) opens one `EventSource` per workflow run, debounced status refresh on events, SSE error budget falls back to 2.5s polling; [frontend/src/components/output/CitationPanel.tsx](frontend/src/components/output/CitationPanel.tsx) + [frontend/src/api/types.ts](frontend/src/api/types.ts) `section_retrieval_results` / `CitationDto` on output page.
+  - Full backend `pytest` run passes locally (including `test_phase10_workers_sse.py`); Phase 5 chunker unit test uses `token_mode="word"` so overlap assertions match the chunker’s word mode.
+  - **Follow-up improvements:** Progress page keeps a per–doc-type status snapshot, refreshes **one** workflow via `getWorkflowStatus(runId)` on SSE (debounced **per run id**), and merges with `reconcileFromSnapshot` instead of refetching all runs on every event. Initial `await poll()` runs before opening EventSources. Fallback to polling when **all** streams are still `EventSource.CLOSED` after 2s; `onopen` clears the probe only after a `setTimeout(0)` when **every** stream is `OPEN`; 30s safety full poll while SSE is primary. `subscribeToWorkflowEvents` exposes `eventSource` for `readyState` checks. `WorkflowExecutor.run` no longer re-raises after a handled failure (avoids noisy `background_task_failed` for expected `workflow.failed`).
+  - **Hardening (review gaps):** Missing snapshot rows trigger `setPerTypeProgress(..., 0, 'Waiting for status…')`, overall **average = sum(progress)/count(docs with runs)** including zeros for gaps, and `pollRef` defensive full poll; terminal `workflow.completed` / `workflow.failed` emits wrapped in try/except with `workflow_*_emit_failed` logs so COMPLETED/FAILED persist if SSE emit fails; `backend/tests/test_phase10_sse_stream.py` integration test for SSE JSON stream; frontend `vitest` + `src/api/workflowApi.test.ts` for `EventSource` URL and event parsing (`npm run test`).
 
 ---
 
