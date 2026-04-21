@@ -4,18 +4,32 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from core.constants import PHASE_WEIGHTS, WorkflowPhase, WorkflowStatus
 from core.exceptions import WorkflowException
 from core.ids import utc_now_iso
+from modules.ingestion.ingestion_coordinator import IngestionCoordinator, IngestionRunResult
+from modules.ingestion.orchestrator import IngestionOrchestrator
+from modules.observability.cost_rollup import merge_full_cost_summary
+from repositories.document_models import DocumentRecord
+from core.config import settings
 from services.event_service import EventService
 from services.workflow_service import WorkflowService
 
 
 class WorkflowExecutor:
-    def __init__(self, workflow_service: WorkflowService, event_service: EventService) -> None:
+    def __init__(
+        self,
+        workflow_service: WorkflowService,
+        event_service: EventService,
+        ingestion_orchestrator: IngestionOrchestrator | None = None,
+        ingestion_coordinator: IngestionCoordinator | None = None,
+    ) -> None:
         self._workflow_service = workflow_service
         self._event_service = event_service
+        self._ingestion_orchestrator = ingestion_orchestrator
+        self._ingestion_coordinator = ingestion_coordinator
 
     async def _run_phase(
         self,
@@ -64,7 +78,37 @@ class WorkflowExecutor:
         self._workflow_service.update(workflow_run_id, current_step_label="Initializing workflow")
 
     async def _phase_ingestion(self, workflow_run_id: str) -> None:
-        self._workflow_service.update(workflow_run_id, current_step_label="Ingestion stub completed")
+        workflow = self._workflow_service.get_or_raise(workflow_run_id)
+        document = self._workflow_service.get_document(workflow.document_id)
+
+        if self._ingestion_orchestrator is None or self._ingestion_coordinator is None:
+            self._workflow_service.update(workflow_run_id, current_step_label="Ingestion dependencies not configured")
+            return
+        if not self._ingestion_orchestrator.is_configured():
+            self._workflow_service.update(
+                workflow_run_id,
+                current_step_label="Ingestion skipped (No Azure credentials)",
+            )
+            return
+
+        self._workflow_service.update(workflow_run_id, current_step_label="Parsing BRD document")
+        skipped, result = await self._ingestion_coordinator.run_ingestion_if_needed(
+            document.document_id,
+            lambda doc: self._run_ingestion_pipeline(workflow_run_id, doc),
+        )
+        if skipped:
+            self._workflow_service.update(
+                workflow_run_id,
+                current_step_label="Ingestion skipped (already indexed)",
+            )
+            return
+
+        if result is not None:
+            self._apply_ingestion_observability(workflow_run_id, result)
+            self._workflow_service.update(
+                workflow_run_id,
+                current_step_label=f"Ingestion completed ({result.chunk_count} chunks)",
+            )
 
     async def _phase_template_preparation(self, workflow_run_id: str) -> None:
         self._workflow_service.update(workflow_run_id, current_step_label="Template preparation stub")
@@ -83,6 +127,33 @@ class WorkflowExecutor:
 
     async def _phase_render_export(self, workflow_run_id: str) -> None:
         self._workflow_service.update(workflow_run_id, current_step_label="Render export stub")
+
+    async def _run_ingestion_pipeline(
+        self,
+        workflow_run_id: str,
+        document: DocumentRecord,
+    ) -> IngestionRunResult:
+        self._workflow_service.update(workflow_run_id, current_step_label="Parsing BRD document")
+        file_path = Path(settings.documents_path) / document.file_path
+        return await self._ingestion_orchestrator.run(
+            workflow_run_id=workflow_run_id,
+            document_id=document.document_id,
+            file_path=file_path,
+            content_type=document.content_type,
+        )
+
+    def _apply_ingestion_observability(self, workflow_run_id: str, result: IngestionRunResult) -> None:
+        workflow = self._workflow_service.get_or_raise(workflow_run_id)
+        merged = merge_full_cost_summary(
+            getattr(workflow, "observability_summary", None),
+            embedding_cost_usd=result.embedding_cost_usd,
+            document_intelligence_cost_usd=result.document_intelligence_cost_usd,
+            extra={
+                "page_count": result.page_count,
+                "indexed_chunk_count": result.chunk_count,
+            },
+        )
+        self._workflow_service.update(workflow_run_id, observability_summary=merged)
 
     async def run(self, workflow_run_id: str) -> None:
         self._workflow_service.get_or_raise(workflow_run_id)

@@ -23,8 +23,18 @@ class Settings(BaseSettings):
     # Kroki must not share the API server port; default 8001.
     kroki_url: str = "http://localhost:8001"
 
+    azure_openai_api_key: str = ""
+    azure_openai_api_version: str = "2024-02-01"
+    azure_openai_gpt5_deployment: str = "gpt5"
+    azure_openai_gpt5mini_deployment: str = "gpt5mini"
+    azure_openai_embedding_deployment: str = "text-embedding-3-large"
     azure_openai_endpoint: str = ""
+
+    azure_search_api_key: str = ""
+    azure_search_index_name: str = "sdlc-chunks"
     azure_search_endpoint: str = ""
+
+    azure_document_intelligence_key: str = ""
     azure_document_intelligence_endpoint: str = ""
 
     # Cost model (USD) — Document Intelligence prebuilt-layout, per page (env: DOCUMENT_INTELLIGENCE_USD_PER_PAGE).

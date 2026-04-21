@@ -36,9 +36,9 @@ Validation types:
 |---|---|---|---|---|
 | 1 | Foundation (`core/` + `repositories/`) | Signed Off | Yes | Core + repos aligned, pytest + lint passed |
 | 2 | API stubs + router wiring | Signed Off | Yes | Phase 2 API stubs complete, pytest + lint passed |
-| 3 | Services layer | Not Started | No | |
-| 4 | Infrastructure adapters | Not Started | No | |
-| 5 | Ingestion module | Not Started | No | |
+| 3 | Services layer | Signed Off | Yes | Service layer + workflow skeleton validated locally |
+| 4 | Infrastructure adapters | Signed Off | Yes | Azure adapter layer added, pytest + lint passed |
+| 5 | Ingestion module | Signed Off | Yes | Ingestion pipeline shipped with reusable embedding usage-accounting helper |
 | 6 | Template system | Not Started | No | |
 | 7 | Retrieval module | Not Started | No | |
 | 8 | Generation module | Not Started | No | |
@@ -141,36 +141,54 @@ Validation types:
 ## Phase 4 Checklist — Infrastructure
 
 ### Completion Criteria
-- [ ] `sk_adapter.py`, `search_client.py`, `doc_intelligence.py` interfaces implemented.
-- [ ] No direct SDK calls outside adapter files.
+- [x] `sk_adapter.py`, `search_client.py`, `doc_intelligence.py` interfaces implemented.
+- [x] No direct SDK calls outside adapter files.
 
 ### Validation (Local)
-- [ ] import/interface tests pass.
-- [ ] cloud integration tests marked `SKIPPED (No Azure Creds)`.
+- [x] import/interface tests pass.
+- [x] cloud integration tests marked `SKIPPED (No Azure Creds)`.
 
 ### Sign-off
-- Status: `Not Started`
-- User sign-off: `Pending`
+- Status: `Signed Off`
+- User sign-off: `Approved`
 - Notes:
+  - Added full Phase 4 adapter layer: `backend/infrastructure/doc_intelligence.py`, `backend/infrastructure/sk_adapter.py`, `backend/infrastructure/search_client.py`, and package init.
+  - Extended adapter configuration in `backend/core/config.py` and `backend/.env.example` (OpenAI/Search/Doc Intelligence keys, endpoints, deployments, versions/index name).
+  - Added task routing constants in `backend/core/constants.py` for model, reasoning effort, and completion token budgets.
+  - Added singleton DI provider hooks in `backend/api/deps.py`: `get_doc_intelligence_client()`, `get_sk_adapter()`, `get_search_client()`.
+  - Added `backend/tests/test_phase4_infrastructure.py` with offline interface tests and credential-gated live checks.
+  - Local validation PASS: `python -m pytest -q` -> `12 passed, 2 skipped`.
+  - Lint diagnostics PASS: no issues on touched files.
 
 ---
 
 ## Phase 5 Checklist — Ingestion
 
 ### Completion Criteria
-- [ ] parser/chunker/indexer/orchestrator implemented.
-- [ ] ingest-once behavior enforced per `document_id`.
-- [ ] concurrent workflows do not race (lock/guard logic).
+- [x] parser/chunker/indexer/orchestrator implemented.
+- [x] ingest-once behavior enforced per `document_id`.
+- [x] concurrent workflows do not race (lock/guard logic).
 
 ### Validation (Local)
-- [ ] chunker tests pass with sample text/table input.
-- [ ] ingest-once coordinator tests pass.
-- [ ] Azure indexing tests skipped (no creds).
+- [x] chunker tests pass with sample text/table input.
+- [x] ingest-once coordinator tests pass.
+- [x] Azure indexing tests skipped (no creds).
 
 ### Sign-off
-- Status: `Not Started`
-- User sign-off: `Pending`
+- Status: `Signed Off`
+- User sign-off: `Approved`
 - Notes:
+  - Implemented ingestion module files: `backend/modules/ingestion/parser.py`, `chunker.py`, `indexer.py`, `orchestrator.py`, and updated `__init__.py`.
+  - Wired ingestion into execution flow via `backend/services/workflow_executor.py` and DI providers in `backend/api/deps.py`.
+  - Implemented ingestion stage events: `ingestion.parse.completed`, `ingestion.chunk.completed`, `ingestion.index.completed`.
+  - Added page attribution for text chunks using Document Intelligence paragraph offset/page metadata mapping.
+  - Added reusable embedding usage-accounting API for future phases:
+    - `AzureSKAdapter.generate_embedding_with_usage(text) -> EmbeddingUsageResult`
+    - `AzureSKAdapter.generate_embedding(text)` remains backward-compatible and delegates to the usage API.
+  - Updated Phase 5 indexer to compute embedding cost from provider-reported `prompt_tokens` instead of word-count heuristics.
+  - Added Phase 5 tests: `backend/tests/test_phase5_ingestion.py` (chunking overlap + page metadata, ingest-once fail/retry/skip, orchestrator event flow).
+  - Local validation PASS: `python -m pytest -q` -> `passed` with expected cloud tests skipped (`SKIPPED (No Azure Creds)`).
+  - Lint diagnostics PASS: no issues on touched Phase 5 files.
 
 ---
 
@@ -190,6 +208,9 @@ Validation types:
 - Status: `Not Started`
 - User sign-off: `Pending`
 - Notes:
+  - Before starting Phase 7, review reusable patterns in `docs/10_QUICK_REFERENCE_AND_RULES.md`:
+    - `Reusable Patterns -> Embedding Usage Accounting (Phase 5 pattern)`
+    - `Reusable Patterns -> Ingestion Configuration Gate Pattern`
 
 ---
 
@@ -207,6 +228,9 @@ Validation types:
 - Status: `Not Started`
 - User sign-off: `Pending`
 - Notes:
+  - Before starting Phase 8, review reusable patterns in `docs/10_QUICK_REFERENCE_AND_RULES.md`:
+    - `Reusable Patterns -> Embedding Usage Accounting (Phase 5 pattern)`
+    - Use `AzureSKAdapter.generate_embedding_with_usage()` for any embedding-based helpers in generation-side modules.
 
 ---
 

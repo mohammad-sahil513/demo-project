@@ -130,6 +130,26 @@ workers/       ← imports from core/ only
 
 ---
 
+## Reusable Patterns (Use In Future Phases)
+
+### Embedding Usage Accounting (Phase 5 pattern)
+
+- **Preferred API:** `AzureSKAdapter.generate_embedding_with_usage(text)` returns:
+  - `embedding: list[float]`
+  - `prompt_tokens: int` (provider-reported usage)
+- **Compatibility API:** `AzureSKAdapter.generate_embedding(text)` still returns only `list[float]` for legacy callsites.
+- **Cost rule:** For embedding-cost math, always use `prompt_tokens` from usage; do not use heuristic token counts (`split()`, char length, etc.).
+- **Where to apply next:** Retrieval, reranking, and any module that calls embeddings in phases 7+.
+- **Testing rule:** In unit tests, fake adapters should expose both methods and return deterministic `prompt_tokens` so cost assertions are stable.
+
+### Ingestion Configuration Gate Pattern
+
+- Add/keep `is_configured()` on orchestration dependencies (parser/indexer/orchestrator).
+- In executor phases, prefer dependency-level readiness checks over direct env-field checks.
+- Use skip labels/messages for local no-credential runs; do not crash the workflow in offline mode.
+
+---
+
 ## SSE Rules
 
 - Emit events using `await self._event_service.emit(workflow_run_id, event_type, payload)`

@@ -97,5 +97,36 @@ MODEL_PRICING: Final[dict[str, dict[str, float]]] = {
     "text-embedding-3-large": {"input": 0.00013, "output": 0.0},
 }
 
+# --- LLM task routing ---
+TASK_TO_MODEL: Final[dict[str, str]] = {
+    "diagram_generation": "gpt5",
+    "diagram_correction": "gpt5",
+    "complex_section": "gpt5",
+    "text_generation": "gpt5mini",
+    "table_generation": "gpt5mini",
+    "template_classification": "gpt5mini",
+    "retrieval_query_generation": "gpt5mini",
+}
+
+TASK_TO_REASONING_EFFORT: Final[dict[str, str]] = {
+    "diagram_generation": "high",
+    "diagram_correction": "high",
+    "complex_section": "high",
+    "text_generation": "medium",
+    "table_generation": "medium",
+    "template_classification": "low",
+    "retrieval_query_generation": "low",
+}
+
+TASK_TO_MAX_COMPLETION_TOKENS: Final[dict[str, int]] = {
+    "diagram_generation": 3000,
+    "diagram_correction": 3000,
+    "complex_section": 2500,
+    "text_generation": 1000,
+    "table_generation": 2000,
+    "template_classification": 800,
+    "retrieval_query_generation": 300,
+}
+
 # Azure Document Intelligence — rough $ per page (prebuilt-layout); tune to your SKU/region.
 DOCUMENT_INTELLIGENCE_USD_PER_PAGE: Final[float] = 0.01
