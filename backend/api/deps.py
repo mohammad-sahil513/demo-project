@@ -12,6 +12,10 @@ from modules.ingestion.indexer import DocumentIndexer
 from modules.ingestion.ingestion_coordinator import IngestionCoordinator
 from modules.ingestion.orchestrator import IngestionOrchestrator
 from modules.ingestion.parser import DocumentParser
+from modules.template.classifier import TemplateClassifier
+from modules.template.extractor import TemplateExtractor
+from modules.template.planner import SectionPlanner
+from modules.template.preview_generator import TemplatePreviewGenerator
 from repositories.document_repo import DocumentRepository
 from repositories.output_repo import OutputRepository
 from repositories.template_repo import TemplateRepository
@@ -55,7 +59,14 @@ def get_document_service() -> DocumentService:
 
 
 def get_template_service() -> TemplateService:
-    return TemplateService(get_template_repository())
+    return TemplateService(
+        get_template_repository(),
+        extractor=get_template_extractor(),
+        classifier=get_template_classifier(),
+        planner=get_section_planner(),
+        preview_generator=get_template_preview_generator(),
+        sk_adapter=get_sk_adapter(),
+    )
 
 
 def get_workflow_service() -> WorkflowService:
@@ -130,3 +141,23 @@ def get_workflow_executor() -> WorkflowExecutor:
         ingestion_orchestrator=get_ingestion_orchestrator(),
         ingestion_coordinator=get_ingestion_coordinator(),
     )
+
+
+@lru_cache(maxsize=1)
+def get_template_extractor() -> TemplateExtractor:
+    return TemplateExtractor()
+
+
+@lru_cache(maxsize=1)
+def get_template_classifier() -> TemplateClassifier:
+    return TemplateClassifier(get_sk_adapter())
+
+
+@lru_cache(maxsize=1)
+def get_section_planner() -> SectionPlanner:
+    return SectionPlanner()
+
+
+@lru_cache(maxsize=1)
+def get_template_preview_generator() -> TemplatePreviewGenerator:
+    return TemplatePreviewGenerator()

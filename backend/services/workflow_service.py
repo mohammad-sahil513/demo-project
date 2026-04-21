@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from core.constants import DocType, WorkflowStatus
+from core.constants import DocType, TemplateSource, TemplateStatus, WorkflowStatus
 from core.exceptions import ValidationException
 from core.ids import utc_now_iso, workflow_id
+from modules.template.inbuilt.registry import doc_type_for_inbuilt_template, is_inbuilt_template_id
 from repositories.document_models import DocumentRecord
 from repositories.document_repo import DocumentRepository
 from repositories.template_models import TemplateRecord
@@ -79,4 +80,20 @@ class WorkflowService:
         return self._document_repo.get_or_raise(document_id)
 
     def get_template(self, template_id: str) -> TemplateRecord:
+        record = self._template_repo.get(template_id)
+        if record is not None:
+            return record
+        if is_inbuilt_template_id(template_id):
+            doc_type = doc_type_for_inbuilt_template(template_id).value
+            now = utc_now_iso()
+            return TemplateRecord(
+                template_id=template_id,
+                filename=f"{doc_type.lower()}_inbuilt",
+                template_type=doc_type,
+                template_source=TemplateSource.INBUILT,
+                status=TemplateStatus.READY.value,
+                compiled_at=now,
+                created_at=now,
+                updated_at=now,
+            )
         return self._template_repo.get_or_raise(template_id)

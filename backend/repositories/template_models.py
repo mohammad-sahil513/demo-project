@@ -18,6 +18,7 @@ class TemplateRecord(BaseModel):
     status: str = Field(default=TemplateStatus.PENDING)
     file_path: str | None = None
     preview_path: str | None = None
+    preview_html: str | None = None
     compile_error: str | None = None
     compiled_at: str | None = None
     section_plan: list[dict[str, object]] = Field(default_factory=list)

@@ -6,12 +6,19 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from core.constants import PHASE_WEIGHTS, WorkflowPhase, WorkflowStatus
+from core.constants import PHASE_WEIGHTS, TemplateStatus, WorkflowPhase, WorkflowStatus
 from core.exceptions import WorkflowException
 from core.ids import utc_now_iso
 from modules.ingestion.ingestion_coordinator import IngestionCoordinator, IngestionRunResult
 from modules.ingestion.orchestrator import IngestionOrchestrator
 from modules.observability.cost_rollup import merge_full_cost_summary
+from modules.template.inbuilt.registry import (
+    doc_type_for_inbuilt_template,
+    get_inbuilt_section_plan,
+    get_inbuilt_style_map,
+    is_inbuilt_template_id,
+)
+from modules.template.models import SectionDefinition, StyleMap
 from repositories.document_models import DocumentRecord
 from core.config import settings
 from services.event_service import EventService
@@ -111,7 +118,36 @@ class WorkflowExecutor:
             )
 
     async def _phase_template_preparation(self, workflow_run_id: str) -> None:
-        self._workflow_service.update(workflow_run_id, current_step_label="Template preparation stub")
+        workflow = self._workflow_service.get_or_raise(workflow_run_id)
+        template = self._workflow_service.get_template(workflow.template_id)
+
+        if is_inbuilt_template_id(template.template_id):
+            doc_type = doc_type_for_inbuilt_template(template.template_id)
+            section_plan = get_inbuilt_section_plan(doc_type)
+            style_map = get_inbuilt_style_map(doc_type)
+            self._workflow_service.update(
+                workflow_run_id,
+                current_step_label=f"Inbuilt template ready ({doc_type.value})",
+                section_plan=[item.model_dump() for item in section_plan],
+                style_map=style_map.model_dump(),
+                sheet_map={},
+            )
+            return
+
+        if template.status != TemplateStatus.READY.value:
+            raise WorkflowException(f"Template {template.template_id} is not ready: {template.status}")
+
+        section_plan = [SectionDefinition.model_validate(item) for item in (template.section_plan or [])]
+        if not section_plan:
+            raise WorkflowException(f"Template {template.template_id} has no compiled section plan.")
+        style_map = StyleMap.model_validate(template.style_map or {})
+        self._workflow_service.update(
+            workflow_run_id,
+            current_step_label=f"Template ready ({len(section_plan)} sections)",
+            section_plan=[item.model_dump() for item in section_plan],
+            style_map=style_map.model_dump(),
+            sheet_map=template.sheet_map or {},
+        )
 
     async def _phase_section_planning(self, workflow_run_id: str) -> None:
         self._workflow_service.update(workflow_run_id, current_step_label="Section planning stub")

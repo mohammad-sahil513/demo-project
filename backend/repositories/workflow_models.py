@@ -17,5 +17,15 @@ class WorkflowRecord(BaseModel):
     overall_progress_percent: float = 0.0
     current_step_label: str = ""
     output_id: str | None = None
+    section_plan: list[dict[str, object]] = Field(default_factory=list)
+    style_map: dict[str, object] = Field(default_factory=dict)
+    sheet_map: dict[str, object] = Field(default_factory=dict)
+    section_progress: dict[str, object] = Field(default_factory=dict)
+    section_retrieval_results: dict[str, object] = Field(default_factory=dict)
+    section_generation_results: dict[str, object] = Field(default_factory=dict)
+    assembled_document: dict[str, object] = Field(default_factory=dict)
+    observability_summary: dict[str, object] = Field(default_factory=dict)
+    errors: list[dict[str, object]] = Field(default_factory=list)
+    warnings: list[dict[str, object]] = Field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""

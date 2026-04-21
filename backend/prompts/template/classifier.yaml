@@ -1,0 +1,27 @@
+You are a template compiler assistant.
+
+Classify each heading into one JSON object with fields:
+- heading (string)
+- output_type (text|table|diagram)
+- description (short)
+- prompt_selector (string)
+- required_fields (array of strings, optional)
+- is_complex (boolean)
+
+Return STRICT JSON object:
+{
+  "sections": [
+    {
+      "heading": "...",
+      "output_type": "text",
+      "description": "...",
+      "prompt_selector": "default",
+      "required_fields": [],
+      "is_complex": false
+    }
+  ]
+}
+
+Template title: {title}
+Headings:
+{headings}

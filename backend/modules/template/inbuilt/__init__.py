@@ -1,0 +1,1 @@
+"""Inbuilt template definitions."""

@@ -39,7 +39,7 @@ Validation types:
 | 3 | Services layer | Signed Off | Yes | Service layer + workflow skeleton validated locally |
 | 4 | Infrastructure adapters | Signed Off | Yes | Azure adapter layer added, pytest + lint passed |
 | 5 | Ingestion module | Signed Off | Yes | Ingestion pipeline shipped with reusable embedding usage-accounting helper |
-| 6 | Template system | Not Started | No | |
+| 6 | Template system | Signed Off | Yes | Inbuilt + custom template compilation pipeline integrated and validated locally |
 | 7 | Retrieval module | Not Started | No | |
 | 8 | Generation module | Not Started | No | |
 | 9 | Assembly + export | Not Started | No | |
@@ -195,19 +195,27 @@ Validation types:
 ## Phase 6 Checklist — Template System
 
 ### Completion Criteria
-- [ ] unified `SectionDefinition` path for inbuilt + custom.
-- [ ] inbuilt registry + style maps ready.
-- [ ] custom compile pipeline implemented (extract/classify/plan/preview).
+- [x] unified `SectionDefinition` path for inbuilt + custom.
+- [x] inbuilt registry + style maps ready.
+- [x] custom compile pipeline implemented (extract/classify/plan/preview).
 
 ### Validation (Local)
-- [ ] inbuilt lookup tests pass.
-- [ ] extractor/planner tests pass with local fixtures.
-- [ ] classifier cloud-call tests skipped (no creds) unless mocked.
+- [x] inbuilt lookup tests pass.
+- [x] extractor/planner tests pass with local fixtures.
+- [x] classifier cloud-call tests skipped (no creds) unless mocked.
 
 ### Sign-off
-- Status: `Not Started`
-- User sign-off: `Pending`
+- Status: `Signed Off`
+- User sign-off: `Approved`
 - Notes:
+  - Added Phase 6 template domain package under `backend/modules/template/` with shared `SectionDefinition` + style/skeleton models.
+  - Implemented inbuilt section/style registries for PDD/SDD/UAT in `backend/modules/template/inbuilt/`.
+  - Implemented custom compile pipeline modules: extractor, classifier (credential-gated with offline fallback), planner, and preview generator.
+  - Replaced `TemplateService.compile_template()` stub with orchestrated compile flow persisting `section_plan`, `style_map`, `sheet_map`, and preview outputs.
+  - Updated workflow integration for template preparation in `backend/services/workflow_executor.py` and inbuilt template fallback resolution in `backend/services/workflow_service.py`.
+  - Added Phase 6 tests in `backend/tests/test_phase6_template_system.py`.
+  - Local validation PASS: `python -m pytest -q` -> all tests passed with expected cloud tests skipped (`SKIPPED (No Azure Creds)`).
+  - Lint diagnostics PASS: no issues on touched Phase 6 files.
   - Before starting Phase 7, review reusable patterns in `docs/10_QUICK_REFERENCE_AND_RULES.md`:
     - `Reusable Patterns -> Embedding Usage Accounting (Phase 5 pattern)`
     - `Reusable Patterns -> Ingestion Configuration Gate Pattern`

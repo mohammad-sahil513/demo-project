@@ -1,12 +1,29 @@
 from __future__ import annotations
 
 import time
+from io import BytesIO
+from zipfile import ZipFile
 
 import pytest
 from fastapi.testclient import TestClient
 
 from core.config import ensure_storage_dirs, settings
 from main import app
+
+
+def _minimal_docx_bytes() -> bytes:
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        "<w:body>"
+        '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>1. Overview</w:t></w:r></w:p>'
+        "</w:body>"
+        "</w:document>"
+    )
+    stream = BytesIO()
+    with ZipFile(stream, "w") as archive:
+        archive.writestr("word/document.xml", document_xml)
+    return stream.getvalue()
 
 
 @pytest.fixture(autouse=True)
@@ -53,7 +70,13 @@ def test_document_template_workflow_lifecycle() -> None:
 
     tpl_upload = client.post(
         "/api/templates/upload",
-        files={"file": ("template.docx", b"docx-bytes", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        files={
+            "file": (
+                "template.docx",
+                _minimal_docx_bytes(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        },
         data={"template_type": "PDD"},
     )
     assert tpl_upload.status_code == 201
@@ -81,3 +104,46 @@ def test_document_template_workflow_lifecycle() -> None:
 
     assert final_status == "COMPLETED"
 
+
+def test_template_compile_status_transitions_ready_and_failed() -> None:
+    client = TestClient(app)
+
+    ready_upload = client.post(
+        "/api/templates/upload",
+        files={
+            "file": (
+                "ready.docx",
+                _minimal_docx_bytes(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        },
+        data={"template_type": "PDD"},
+    )
+    assert ready_upload.status_code == 201
+    ready_template_id = ready_upload.json()["data"]["template_id"]
+
+    failed_upload = client.post(
+        "/api/templates/upload",
+        files={
+            "file": (
+                "failed.docx",
+                b"definitely-not-a-docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        },
+        data={"template_type": "PDD"},
+    )
+    assert failed_upload.status_code == 201
+    failed_template_id = failed_upload.json()["data"]["template_id"]
+
+    ready_status = "COMPILING"
+    failed_status = "COMPILING"
+    for _ in range(40):
+        ready_status = client.get(f"/api/templates/{ready_template_id}/compile-status").json()["data"]["status"]
+        failed_status = client.get(f"/api/templates/{failed_template_id}/compile-status").json()["data"]["status"]
+        if ready_status in {"READY", "FAILED"} and failed_status in {"READY", "FAILED"}:
+            break
+        time.sleep(0.05)
+
+    assert ready_status == "READY"
+    assert failed_status == "FAILED"

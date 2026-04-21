@@ -1,0 +1,1 @@
+"""Inbuilt template style maps."""
