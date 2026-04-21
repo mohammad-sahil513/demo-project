@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from core.config import settings
+from core.hosting import verify_storage_writable
 from core.response import success_response
 
 router = APIRouter()
@@ -26,5 +27,6 @@ async def ready() -> object:
         "azure_doc_intelligence_configured": bool(settings.azure_document_intelligence_endpoint),
         "kroki_url": settings.kroki_url,
         "storage_root": str(settings.storage_root),
+        "storage_writable": verify_storage_writable(settings.storage_root),
     }
     return success_response(data)

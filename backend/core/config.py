@@ -20,6 +20,10 @@ class Settings(BaseSettings):
 
     api_prefix: str = "/api"
 
+    # Comma-separated browser origins, or "*" for any origin (SSE + API on another host).
+    # With "*", credentials are disabled (browser rules). Example: https://app.example.com,https://www.example.com
+    cors_origins: str = "*"
+
     # Kroki must not share the API server port; default 8001.
     kroki_url: str = "http://localhost:8001"
 
@@ -76,6 +80,16 @@ class Settings(BaseSettings):
             self.logs_path,
         ):
             path.mkdir(parents=True, exist_ok=True)
+
+    def cors_origin_list(self) -> list[str]:
+        raw = (self.cors_origins or "").strip()
+        if not raw or raw == "*":
+            return ["*"]
+        return [o.strip() for o in raw.split(",") if o.strip()]
+
+    def cors_allow_credentials(self) -> bool:
+        """Wildcard origin is incompatible with credentialed cross-origin requests."""
+        return self.cors_origin_list() != ["*"]
 
 
 settings = Settings()

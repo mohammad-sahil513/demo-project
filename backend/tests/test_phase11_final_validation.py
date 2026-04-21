@@ -32,3 +32,4 @@ def test_phase11_ready_exposes_all_integration_flags() -> None:
     assert "azure_doc_intelligence_configured" in data
     assert "kroki_url" in data and isinstance(data["kroki_url"], str)
     assert "storage_root" in data and isinstance(data["storage_root"], str)
+    assert data.get("storage_writable") is True
