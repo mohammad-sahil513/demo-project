@@ -125,8 +125,8 @@ Validation types:
 - [x] API calls for service-backed endpoints pass without Azure dependency.
 
 ### Sign-off
-- Status: `Completed`
-- User sign-off: `Pending`
+- Status: `Signed Off`
+- User sign-off: `Approved`
 - Notes:
 - Implemented full service logic in `services/document_service.py`, `template_service.py`, `workflow_service.py`, `output_service.py`, and `event_service.py`.
 - Added `services/workflow_executor.py` skeleton with phase wrapper + ordered stub phase execution and terminal workflow events.
