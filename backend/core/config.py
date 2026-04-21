@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     azure_search_api_key: str = ""
     azure_search_index_name: str = "sdlc-chunks"
     azure_search_endpoint: str = ""
+    retrieval_top_k: int = 5
+    chunker_token_mode: str = "tiktoken"
 
     azure_document_intelligence_key: str = ""
     azure_document_intelligence_endpoint: str = ""

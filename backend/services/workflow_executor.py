@@ -4,14 +4,21 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 
-from core.constants import PHASE_WEIGHTS, TemplateStatus, WorkflowPhase, WorkflowStatus
+from core.constants import MODEL_PRICING, PHASE_WEIGHTS, TemplateStatus, WorkflowPhase, WorkflowStatus
 from core.exceptions import WorkflowException
 from core.ids import utc_now_iso
 from modules.ingestion.ingestion_coordinator import IngestionCoordinator, IngestionRunResult
 from modules.ingestion.orchestrator import IngestionOrchestrator
+from modules.generation.cost_tracking import GenerationCostTracker
+from modules.generation.models import GenerationSectionResult
+from modules.generation.observability import merge_generation_observability
+from modules.generation.orchestrator import GenerationOrchestrator
 from modules.observability.cost_rollup import merge_full_cost_summary
+from modules.retrieval.packager import EvidencePackager
+from modules.retrieval.retriever import SectionRetriever, merge_retrieval_observability
 from modules.template.inbuilt.registry import (
     doc_type_for_inbuilt_template,
     get_inbuilt_section_plan,
@@ -25,6 +32,24 @@ from services.event_service import EventService
 from services.workflow_service import WorkflowService
 
 
+@dataclass(slots=True)
+class _RetrievalCostTracker:
+    llm_cost_usd: float = 0.0
+    total_tokens_in: int = 0
+    total_tokens_out: int = 0
+    total_llm_calls: int = 0
+
+    def track_call(self, *, model: str, task: str, input_tokens: int, output_tokens: int) -> None:
+        del task
+        rates = MODEL_PRICING.get(model)
+        if rates is None:
+            return
+        self.total_tokens_in += int(input_tokens)
+        self.total_tokens_out += int(output_tokens)
+        self.total_llm_calls += 1
+        self.llm_cost_usd += (input_tokens / 1000.0) * rates["input"] + (output_tokens / 1000.0) * rates["output"]
+
+
 class WorkflowExecutor:
     def __init__(
         self,
@@ -32,11 +57,17 @@ class WorkflowExecutor:
         event_service: EventService,
         ingestion_orchestrator: IngestionOrchestrator | None = None,
         ingestion_coordinator: IngestionCoordinator | None = None,
+        section_retriever: SectionRetriever | None = None,
+        evidence_packager: EvidencePackager | None = None,
+        generation_orchestrator: GenerationOrchestrator | None = None,
     ) -> None:
         self._workflow_service = workflow_service
         self._event_service = event_service
         self._ingestion_orchestrator = ingestion_orchestrator
         self._ingestion_coordinator = ingestion_coordinator
+        self._section_retriever = section_retriever
+        self._evidence_packager = evidence_packager
+        self._generation_orchestrator = generation_orchestrator
 
     async def _run_phase(
         self,
@@ -153,16 +184,163 @@ class WorkflowExecutor:
         self._workflow_service.update(workflow_run_id, current_step_label="Section planning stub")
 
     async def _phase_retrieval(self, workflow_run_id: str) -> None:
-        self._workflow_service.update(workflow_run_id, current_step_label="Retrieval stub")
+        workflow = self._workflow_service.get_or_raise(workflow_run_id)
+        section_plan = [SectionDefinition.model_validate(item) for item in (workflow.section_plan or [])]
+        if not section_plan:
+            self._workflow_service.update(workflow_run_id, current_step_label="Retrieval skipped (no sections)")
+            return
+
+        if self._section_retriever is None or self._evidence_packager is None:
+            message = "Retrieval dependencies not configured"
+            if self._is_local_env():
+                self._workflow_service.update(workflow_run_id, current_step_label=f"{message} (local skip)")
+                return
+            raise WorkflowException(message)
+        if not self._section_retriever.is_configured():
+            message = "Retrieval not configured (missing Azure credentials)"
+            if self._is_local_env():
+                self._workflow_service.update(
+                    workflow_run_id,
+                    current_step_label=f"{message}; skipped in local env",
+                )
+                return
+            raise WorkflowException(message)
+
+        self._workflow_service.update(
+            workflow_run_id,
+            current_step_label=f"Retrieving evidence for {len(section_plan)} sections",
+        )
+        retrieval_cost_tracker = _RetrievalCostTracker()
+        tasks = [
+            self._retrieve_one_section(workflow.document_id, section, retrieval_cost_tracker)
+            for section in section_plan
+        ]
+        outputs = await asyncio.gather(*tasks)
+
+        section_retrieval_results: dict[str, dict[str, object]] = {}
+        total_embedding_cost_usd = 0.0
+        for section_id, bundle_dict, embedding_cost_usd in outputs:
+            section_retrieval_results[section_id] = bundle_dict
+            total_embedding_cost_usd += embedding_cost_usd
+
+        updated = self._workflow_service.update(
+            workflow_run_id,
+            section_retrieval_results=section_retrieval_results,
+            current_step_label=f"Retrieved evidence for {len(section_retrieval_results)} sections",
+        )
+        observability_summary = merge_retrieval_observability(
+            getattr(updated, "observability_summary", None),
+            llm_cost_usd=retrieval_cost_tracker.llm_cost_usd,
+            embedding_cost_usd=total_embedding_cost_usd,
+            retrieved_sections=len(section_retrieval_results),
+            total_tokens_in=retrieval_cost_tracker.total_tokens_in,
+            total_tokens_out=retrieval_cost_tracker.total_tokens_out,
+            total_llm_calls=retrieval_cost_tracker.total_llm_calls,
+        )
+        self._workflow_service.update(workflow_run_id, observability_summary=observability_summary)
 
     async def _phase_generation(self, workflow_run_id: str) -> None:
-        self._workflow_service.update(workflow_run_id, current_step_label="Generation stub")
+        workflow = self._workflow_service.get_or_raise(workflow_run_id)
+        section_plan = [SectionDefinition.model_validate(item) for item in (workflow.section_plan or [])]
+        if not section_plan:
+            self._workflow_service.update(workflow_run_id, current_step_label="Generation skipped (no sections)")
+            return
+
+        if self._generation_orchestrator is None:
+            message = "Generation dependencies not configured"
+            if self._is_local_env():
+                self._workflow_service.update(workflow_run_id, current_step_label=f"{message} (local skip)")
+                return
+            raise WorkflowException(message)
+
+        if not self._generation_orchestrator.is_configured():
+            message = "Generation not configured (missing Azure credentials)"
+            if self._is_local_env():
+                self._workflow_service.update(
+                    workflow_run_id,
+                    current_step_label=f"{message}; skipped in local env",
+                )
+                return
+            raise WorkflowException(message)
+
+        self._workflow_service.update(
+            workflow_run_id,
+            current_step_label=f"Generating content for {len(section_plan)} sections",
+        )
+        cost_tracker = GenerationCostTracker()
+
+        async def _emit(wid: str, event_type: str, payload: dict[str, object] | None) -> None:
+            await self._event_service.emit(wid, event_type, payload)
+
+        raw_results = await self._generation_orchestrator.run_all_sections(
+            workflow_run_id=workflow_run_id,
+            sections=section_plan,
+            section_retrieval_results=dict(workflow.section_retrieval_results or {}),
+            doc_type=workflow.doc_type,
+            cost_tracker=cost_tracker,
+            emit=_emit,
+        )
+        section_generation_results: dict[str, dict[str, object]] = {}
+        for section_id, payload in raw_results.items():
+            cleaned = dict(payload)
+            cleaned.pop("diagram_source", None)
+            section_generation_results[section_id] = GenerationSectionResult.model_validate(cleaned).model_dump()
+
+        failed = sum(1 for row in section_generation_results.values() if row.get("error"))
+        completed = len(section_generation_results) - failed
+        section_progress = {
+            "total": len(section_generation_results),
+            "pending": 0,
+            "running": 0,
+            "completed": completed,
+            "failed": failed,
+        }
+
+        updated = self._workflow_service.update(
+            workflow_run_id,
+            section_generation_results=section_generation_results,
+            section_progress=section_progress,
+            current_step_label=f"Generated {len(section_generation_results)} sections",
+        )
+        observability_summary = merge_generation_observability(
+            getattr(updated, "observability_summary", None),
+            llm_cost_usd=cost_tracker.llm_cost_usd,
+            generated_sections=len(section_generation_results),
+            total_tokens_in=cost_tracker.total_tokens_in,
+            total_tokens_out=cost_tracker.total_tokens_out,
+            total_llm_calls=cost_tracker.total_llm_calls,
+        )
+        self._workflow_service.update(workflow_run_id, observability_summary=observability_summary)
 
     async def _phase_assembly_validation(self, workflow_run_id: str) -> None:
         self._workflow_service.update(workflow_run_id, current_step_label="Assembly validation stub")
 
     async def _phase_render_export(self, workflow_run_id: str) -> None:
         self._workflow_service.update(workflow_run_id, current_step_label="Render export stub")
+
+    async def _retrieve_one_section(
+        self,
+        document_id: str,
+        section: SectionDefinition,
+        cost_tracker: _RetrievalCostTracker,
+    ) -> tuple[str, dict[str, object], float]:
+        if self._section_retriever is None or self._evidence_packager is None:
+            raise WorkflowException("Retrieval dependencies not configured.")
+        chunks, embedding_cost_usd = await self._section_retriever.retrieve_for_section(
+            section,
+            document_id=document_id,
+            cost_tracker=cost_tracker,
+        )
+        bundle = self._evidence_packager.package(section.section_id, chunks)
+        bundle_dict = {
+            "context_text": bundle.context_text,
+            "citations": [citation.model_dump() for citation in bundle.citations],
+        }
+        return section.section_id, bundle_dict, embedding_cost_usd
+
+    @staticmethod
+    def _is_local_env() -> bool:
+        return settings.app_env.lower() in {"development", "dev", "local", "test"}
 
     async def _run_ingestion_pipeline(
         self,
@@ -239,10 +417,12 @@ class WorkflowExecutor:
                 current_step_label="Workflow completed",
             )
             workflow = self._workflow_service.get_or_raise(workflow_run_id)
+            summary = getattr(workflow, "observability_summary", None) or {}
+            total_cost = float(summary.get("total_cost_usd", 0.0))
             await self._event_service.emit(
                 workflow_run_id,
                 "workflow.completed",
-                {"output_id": workflow.output_id, "total_cost_usd": 0.0},
+                {"output_id": workflow.output_id, "total_cost_usd": total_cost},
             )
         except Exception as exc:
             self._workflow_service.update(

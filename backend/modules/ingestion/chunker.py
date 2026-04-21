@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 from core.ids import chunk_id_for_document
+from core.token_count import count_tokens
 from infrastructure.doc_intelligence import ParsedDocument
 
 _HEADING_RE = re.compile(
@@ -30,9 +32,17 @@ class IngestionChunk:
 class DocumentChunker:
     """Split parsed content into table and text chunks."""
 
-    def __init__(self, *, chunk_size: int = 512, overlap: int = 64) -> None:
+    def __init__(
+        self,
+        *,
+        chunk_size: int = 512,
+        overlap: int = 64,
+        token_mode: str = "tiktoken",
+    ) -> None:
         self._chunk_size = max(32, chunk_size)
         self._overlap = max(0, min(overlap, self._chunk_size - 1))
+        normalized_mode = (token_mode or "tiktoken").strip().lower()
+        self._token_mode = normalized_mode if normalized_mode in {"tiktoken", "word"} else "tiktoken"
 
     def chunk(
         self,
@@ -113,6 +123,30 @@ class DocumentChunker:
         return sections
 
     def _sliding_windows(self, text: str) -> list[str]:
+        if self._token_mode == "word" or self._encoding() is None:
+            return self._sliding_windows_word_fallback(text)
+
+        token_ids = self._encode_tokens(text)
+        if not token_ids:
+            return []
+        if len(token_ids) <= self._chunk_size:
+            single = self._decode_tokens(token_ids).strip()
+            return [single] if single else []
+
+        out: list[str] = []
+        step = max(1, self._chunk_size - self._overlap)
+        for start in range(0, len(token_ids), step):
+            window = token_ids[start : start + self._chunk_size]
+            if not window:
+                break
+            text_window = self._decode_tokens(window).strip()
+            if text_window:
+                out.append(text_window)
+            if start + self._chunk_size >= len(token_ids):
+                break
+        return out
+
+    def _sliding_windows_word_fallback(self, text: str) -> list[str]:
         tokens = _TOKEN_RE.findall(text)
         if not tokens:
             return []
@@ -131,7 +165,35 @@ class DocumentChunker:
         return out
 
     def _token_count(self, text: str) -> int:
-        return len(_TOKEN_RE.findall(text))
+        return count_tokens(text)
+
+    def _encode_tokens(self, text: str) -> list[int]:
+        encoding = self._encoding()
+        if encoding is None:
+            return []
+        try:
+            return encoding.encode(text)
+        except Exception:
+            return []
+
+    def _decode_tokens(self, token_ids: list[int]) -> str:
+        encoding = self._encoding()
+        if encoding is None:
+            return ""
+        try:
+            return encoding.decode(token_ids)
+        except Exception:
+            return ""
+
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def _encoding():
+        try:
+            import tiktoken  # type: ignore
+
+            return tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            return None
 
     def _page_markers(self, raw_result: dict[str, Any]) -> list[tuple[int, int]]:
         markers: list[tuple[int, int]] = []

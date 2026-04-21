@@ -12,6 +12,13 @@ from modules.ingestion.indexer import DocumentIndexer
 from modules.ingestion.ingestion_coordinator import IngestionCoordinator
 from modules.ingestion.orchestrator import IngestionOrchestrator
 from modules.ingestion.parser import DocumentParser
+from modules.generation.diagram_generator import DiagramSectionGenerator
+from modules.generation.kroki import KrokiRenderer
+from modules.generation.orchestrator import GenerationOrchestrator
+from modules.generation.table_generator import TableSectionGenerator
+from modules.generation.text_generator import TextSectionGenerator
+from modules.retrieval.packager import EvidencePackager
+from modules.retrieval.retriever import SectionRetriever
 from modules.template.classifier import TemplateClassifier
 from modules.template.extractor import TemplateExtractor
 from modules.template.planner import SectionPlanner
@@ -111,7 +118,7 @@ def get_ingestion_parser() -> DocumentParser:
 
 @lru_cache(maxsize=1)
 def get_document_chunker() -> DocumentChunker:
-    return DocumentChunker()
+    return DocumentChunker(token_mode=settings.chunker_token_mode)
 
 
 @lru_cache(maxsize=1)
@@ -134,12 +141,39 @@ def get_ingestion_orchestrator() -> IngestionOrchestrator:
     )
 
 
+@lru_cache(maxsize=1)
+def get_section_retriever() -> SectionRetriever:
+    return SectionRetriever(search_client=get_search_client(), sk_adapter=get_sk_adapter())
+
+
+@lru_cache(maxsize=1)
+def get_evidence_packager() -> EvidencePackager:
+    return EvidencePackager()
+
+
+@lru_cache(maxsize=1)
+def get_generation_orchestrator() -> GenerationOrchestrator:
+    sk = get_sk_adapter()
+    return GenerationOrchestrator(
+        text_generator=TextSectionGenerator(sk),
+        table_generator=TableSectionGenerator(sk),
+        diagram_generator=DiagramSectionGenerator(
+            sk,
+            kroki=KrokiRenderer(settings.kroki_url),
+            storage_root=settings.storage_root,
+        ),
+    )
+
+
 def get_workflow_executor() -> WorkflowExecutor:
     return WorkflowExecutor(
         workflow_service=get_workflow_service(),
         event_service=get_event_service(),
         ingestion_orchestrator=get_ingestion_orchestrator(),
         ingestion_coordinator=get_ingestion_coordinator(),
+        section_retriever=get_section_retriever(),
+        evidence_packager=get_evidence_packager(),
+        generation_orchestrator=get_generation_orchestrator(),
     )
 
 

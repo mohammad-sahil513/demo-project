@@ -16,6 +16,7 @@ from core.constants import (
     TASK_TO_REASONING_EFFORT,
 )
 from core.exceptions import GenerationException
+from core.token_count import count_tokens
 
 AZURE_OPENAI_TIMEOUT_SECONDS = 90.0
 
@@ -70,7 +71,7 @@ class AzureSKAdapter:
         }
         body = await self._post_chat_completion(deployment, payload)
         text = self._extract_text(body)
-        self._track_usage(cost_tracker, model_alias, task, body)
+        self._track_usage(cost_tracker, model_alias, task, body, prompt=prompt, output_text=text)
         return text
 
     async def invoke_json(
@@ -112,6 +113,8 @@ class AzureSKAdapter:
         vector = [float(v) for v in embedding]
         usage = body.get("usage") or {}
         prompt_tokens = int(usage.get("prompt_tokens") or 0)
+        if prompt_tokens <= 0:
+            prompt_tokens = count_tokens(text)
         return EmbeddingUsageResult(embedding=vector, prompt_tokens=prompt_tokens)
 
     async def _post_chat_completion(self, deployment: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -165,12 +168,25 @@ class AzureSKAdapter:
             except orjson.JSONDecodeError as exc:
                 raise GenerationException("Model response is not valid JSON.", code="INVALID_JSON_RESPONSE") from exc
 
-    def _track_usage(self, cost_tracker: Any | None, model_alias: str, task: str, body: dict[str, Any]) -> None:
+    def _track_usage(
+        self,
+        cost_tracker: Any | None,
+        model_alias: str,
+        task: str,
+        body: dict[str, Any],
+        *,
+        prompt: str,
+        output_text: str,
+    ) -> None:
         if cost_tracker is None:
             return
         usage = body.get("usage") or {}
         input_tokens = int(usage.get("prompt_tokens") or 0)
         output_tokens = int(usage.get("completion_tokens") or 0)
+        if input_tokens <= 0:
+            input_tokens = count_tokens(prompt)
+        if output_tokens <= 0 and output_text:
+            output_tokens = count_tokens(output_text)
 
         if hasattr(cost_tracker, "track_call"):
             cost_tracker.track_call(

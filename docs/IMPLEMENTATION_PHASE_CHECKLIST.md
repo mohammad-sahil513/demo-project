@@ -40,7 +40,7 @@ Validation types:
 | 4 | Infrastructure adapters | Signed Off | Yes | Azure adapter layer added, pytest + lint passed |
 | 5 | Ingestion module | Signed Off | Yes | Ingestion pipeline shipped with reusable embedding usage-accounting helper |
 | 6 | Template system | Signed Off | Yes | Inbuilt + custom template compilation pipeline integrated and validated locally |
-| 7 | Retrieval module | Not Started | No | |
+| 7 | Retrieval module | Signed Off | Yes | Section retrieval/evidence packaging integrated, validated with mocked local tests |
 | 8 | Generation module | Not Started | No | |
 | 9 | Assembly + export | Not Started | No | |
 | 10 | Workers + SSE | Not Started | No | |
@@ -225,17 +225,38 @@ Validation types:
 ## Phase 7 Checklist — Retrieval
 
 ### Completion Criteria
-- [ ] section retrieval query resolution implemented.
-- [ ] evidence packager + citations implemented.
+- [x] section retrieval query resolution implemented.
+- [x] evidence packager + citations implemented.
 
 ### Validation (Local)
-- [ ] packager tests pass.
-- [ ] search integration tests skipped (no creds) or mocked.
+- [x] packager tests pass.
+- [x] search integration tests skipped (no creds) or mocked.
 
 ### Sign-off
-- Status: `Not Started`
-- User sign-off: `Pending`
+- Status: `Signed Off`
+- User sign-off: `Approved`
 - Notes:
+  - Added retrieval module package under `backend/modules/retrieval/`:
+    - `retriever.py`: `SectionRetriever`, adaptive `_resolve_query()`, embedding usage-cost accounting, and hybrid search mapping.
+    - `packager.py`: `EvidencePackager`, `EvidenceBundle`, and `Citation` models with deterministic `context_text` source-block formatting.
+  - Integrated retrieval into `backend/services/workflow_executor.py`:
+    - Replaced retrieval stub with parallel per-section retrieval using `asyncio.gather`.
+    - Persists `section_retrieval_results` as `{section_id: {context_text, citations}}`.
+    - Added env-aware behavior: local/dev/test skip on missing retrieval config; non-local environments raise and fail phase.
+    - Added retrieval observability rollup for both embedding and retrieval-query LLM usage.
+  - Wired retrieval dependencies in `backend/api/deps.py` (`get_section_retriever()`, `get_evidence_packager()`).
+  - Added retrieval config in `backend/core/config.py` and `backend/.env.example`:
+    - `RETRIEVAL_TOP_K`
+    - `CHUNKER_TOKEN_MODE` (`tiktoken|word`)
+  - Added shared token counting helper `backend/core/token_count.py` and integrated tiktoken fallback usage in:
+    - `backend/infrastructure/sk_adapter.py` for chat/embedding usage fallback counting.
+    - `backend/modules/ingestion/chunker.py` token-aware chunking and configurable token mode.
+  - Added Phase 7 tests: `backend/tests/test_phase7_retrieval.py` (packager formatting, direct/adaptive query paths, executor persistence, non-local config failure behavior).
+  - Local validation PASS:
+    - `python -m pytest -q tests/test_phase7_retrieval.py`
+    - `python -m pytest -q tests/test_phase5_ingestion.py`
+    - `python -m pytest -q` (full backend suite)
+  - Lint diagnostics PASS: no issues on touched Phase 7 and follow-up files.
   - Before starting Phase 8, review reusable patterns in `docs/10_QUICK_REFERENCE_AND_RULES.md`:
     - `Reusable Patterns -> Embedding Usage Accounting (Phase 5 pattern)`
     - Use `AzureSKAdapter.generate_embedding_with_usage()` for any embedding-based helpers in generation-side modules.
@@ -245,18 +266,25 @@ Validation types:
 ## Phase 8 Checklist — Generation
 
 ### Completion Criteria
-- [ ] prompt loading and text/table/diagram generators implemented.
-- [ ] diagram retry/fallback logic implemented.
+- [x] prompt loading and text/table/diagram generators implemented.
+- [x] diagram retry/fallback logic implemented.
 
 ### Validation (Local)
-- [ ] prompt rendering tests pass.
-- [ ] diagram encoding/render-request logic unit tested.
-- [ ] live model tests skipped (no creds).
+- [x] prompt rendering tests pass.
+- [x] diagram encoding/render-request logic unit tested.
+- [x] live model tests skipped (no creds).
 
 ### Sign-off
-- Status: `Not Started`
+- Status: `Signed Off`
 - User sign-off: `Pending`
 - Notes:
+  - Added generation prompt pack under `backend/prompts/generation/` (text/table/diagram + PlantUML correction + Mermaid fallback).
+  - Added `backend/modules/generation/`: `GenerationPromptLoader`, `TextSectionGenerator`, `TableSectionGenerator`, `DiagramSectionGenerator` (PlantUML retries + Mermaid fallback via Kroki), `KrokiRenderer`, `GenerationOrchestrator` (dependency waves + `asyncio.gather`), `GenerationCostTracker`, `merge_generation_observability`.
+  - Wired `get_generation_orchestrator()` in `backend/api/deps.py` and injected into `WorkflowExecutor`.
+  - Replaced `_phase_generation()` in `backend/services/workflow_executor.py`: persists `section_generation_results`, updates `section_progress`, merges LLM observability, emits `section.generation.started` / `section.generation.completed`, strips `diagram_source` before persistence; `workflow.completed` now includes `total_cost_usd` from `observability_summary`.
+  - Phase 8 tests: `backend/tests/test_phase8_generation.py`.
+  - Local validation PASS: `python -m pytest -q tests/test_phase8_generation.py`, `python -m pytest -q` (full backend suite).
+  - Lint diagnostics PASS: no issues on touched Phase 8 files.
 
 ---
 
