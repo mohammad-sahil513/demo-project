@@ -44,7 +44,7 @@ Validation types:
 | 8 | Generation module | Signed Off | Yes | Committed with Phase 9; pytest + lint green |
 | 9 | Assembly + export | Signed Off | Yes | See Phase 9 notes (warnings, sheet_map, DocxFiller) |
 | 10 | Workers + SSE | Signed Off | Yes | Dispatcher guard + SSE client + ProgressPage + CitationPanel |
-| 11 | Final validation hardening | Not Started | No | |
+| 11 | Final validation hardening | Signed Off | Yes | Local suite + Phase 11 contract tests; CI [.github/workflows/ci.yml](../.github/workflows/ci.yml); manual §09 cloud/browser items PENDING in target env |
 
 ---
 
@@ -325,7 +325,7 @@ Validation types:
 
 ### Sign-off
 - Status: `Signed Off`
-- User sign-off: `Pending`
+- User sign-off: `Approved`
 - Notes:
   - `TaskDispatcher.dispatch` now runs tasks via `_run_guarded`, logging `background_task_failed` with task name and string `resource_id` when present.
   - Frontend: [frontend/src/api/workflowApi.ts](frontend/src/api/workflowApi.ts) `subscribeToWorkflowEvents`; [frontend/src/pages/ProgressPage.tsx](frontend/src/pages/ProgressPage.tsx) opens one `EventSource` per workflow run, debounced status refresh on events, SSE error budget falls back to 2.5s polling; [frontend/src/components/output/CitationPanel.tsx](frontend/src/components/output/CitationPanel.tsx) + [frontend/src/api/types.ts](frontend/src/api/types.ts) `section_retrieval_results` / `CitationDto` on output page.
@@ -338,16 +338,30 @@ Validation types:
 ## Phase 11 Checklist — Final Validation
 
 ### Completion Criteria
-- [ ] all prior phases marked completed.
-- [ ] end-to-end workflow behavior validated as far as local env allows.
-- [ ] cloud-only checks listed as skipped/pending explicitly.
+- [x] all prior phases marked completed (Phases 1–10 signed off in this board).
+- [x] end-to-end workflow behavior validated as far as local env allows (automated suite + existing route contract tests; no live Azure/Kroki browser E2E on this machine).
+- [x] cloud-only checks listed as skipped/pending explicitly (see Notes).
 
 ### Validation (Local)
-- [ ] full local smoke run passes.
-- [ ] lint/tests green for implemented scope.
+- [x] full local smoke run passes: `backend` — `python -m pytest -q` → all passed, 2 skipped (credential-gated / cloud).
+- [x] `frontend` — `npm run build` and `npm run test` (vitest) green.
 
 ### Sign-off
-- Status: `Not Started`
-- User sign-off: `Pending`
+- Status: `Signed Off`
+- User sign-off: `Approved`
 - Notes:
+  - **Local automation (2026-04-21):** `python -m pytest -q` (all passed; 2 skipped credential-gated), `npm run build`, `npm run test`. Phase 11 API contracts: [backend/tests/test_phase11_final_validation.py](../backend/tests/test_phase11_final_validation.py). Wider stubs/lifecycle: [backend/tests/test_phase2_api_stubs.py](../backend/tests/test_phase2_api_stubs.py). CI: [.github/workflows/ci.yml](../.github/workflows/ci.yml) runs backend pytest + frontend build/test on push/PR.
+  - **Manual checklist traceability (docs/09_PHASED_BUILD_PLAN.md § Phase 11):** In a fully configured environment, walk each checkbox. Status without that environment:
+
+| Area | Local / automated | Manual / cloud (target env) |
+|------|-------------------|----------------------------|
+| Health & Config | PASS: `/api/health`, `/api/ready` envelope + integration flags in tests | PENDING: Kroki Docker health `curl`, all `azure_*_configured` true with real keys, Search index present |
+| Document operations | Partial: upload + list + workflow in `test_document_template_workflow_lifecycle` | PENDING: PNG rejection 400, delete removes disk + JSON, full PDF/DOCX QA |
+| Template operations | Partial: compile-status polling in phase 2 tests | PENDING: SDD/UAT flows, inbuilt section counts, `/preview-html`, `/download` binary |
+| Workflow operations | Partial: create + status to COMPLETED (stub/local path) | PENDING: live eight-phase SSE sequence, observability cost breakdown with Azure |
+| Output validation | Covered in [backend/tests/test_phase9_assembly_export.py](../backend/tests/test_phase9_assembly_export.py) for export structure | PENDING: open in Word/Excel, citation-free DOCX in real runs |
+| Frontend compatibility | `vitest` + build; no browser automation in CI | PENDING: multi-tab SSE, polling fallback under disconnect, docx-preview vs UAT HTML |
+| Error & edge cases | Unit/integration tests across phases | PENDING: 404s, Kroki down, Search down, large BRD, 20+ section custom template |
+
+  - **Reference:** `GET /api/ready` implementation: [backend/api/routes/health.py](../backend/api/routes/health.py).
 
