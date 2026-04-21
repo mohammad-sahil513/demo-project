@@ -1,0 +1,213 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --ey-primary: #ffe600;
+    --ey-primary-hover: #e6cf00;
+    --ey-primary-rgb: 255, 230, 0;
+    --ey-ink: #1a1a1a;
+    --ey-ink-strong: #000000;
+    --ey-muted: #6b6b6b;
+    --ey-surface: #f7f7f7;
+    --ey-border: #e5e5e5;
+    --ey-nav: #000000;
+    --ey-white: #ffffff;
+    --ey-canvas: #f0f0f0;
+    --font-sans: 'Inter', system-ui, sans-serif;
+    /* Legacy aliases */
+    --brand-black: var(--ey-ink-strong);
+    --brand-yellow: var(--ey-primary);
+    --brand-gray: var(--ey-surface);
+    --brand-border: var(--ey-border);
+    --brand-text: var(--ey-ink);
+    --brand-muted: var(--ey-muted);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    color: var(--ey-ink);
+    background: var(--ey-white);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-sans);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* ── DOCX Viewer Prose ─────────────────────────────────── */
+.docx-prose {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--ey-ink);
+}
+
+.docx-prose h1 {
+  font-family: var(--font-sans);
+  font-size: 28px;
+  font-weight: 800;
+  margin: 0 0 20px;
+  padding-bottom: 10px;
+  border-bottom: 3px solid var(--ey-primary);
+  color: var(--ey-ink-strong);
+}
+
+.docx-prose h2 {
+  font-family: var(--font-sans);
+  font-size: 22px;
+  font-weight: 700;
+  margin: 28px 0 12px;
+  color: var(--ey-ink-strong);
+}
+
+.docx-prose h3 {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  margin: 20px 0 8px;
+  color: var(--ey-ink-strong);
+}
+
+.docx-prose p {
+  margin: 0 0 14px;
+}
+
+.docx-prose ul, .docx-prose ol {
+  margin: 0 0 14px 20px;
+}
+
+.docx-prose li {
+  margin-bottom: 4px;
+}
+
+.docx-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 13px;
+}
+
+.docx-prose th {
+  background: var(--ey-ink-strong);
+  color: var(--ey-primary);
+  font-family: var(--font-sans);
+  font-weight: 600;
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.docx-prose td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--ey-border);
+  vertical-align: top;
+}
+
+.docx-prose tr:last-child td {
+  border-bottom: none;
+}
+
+.docx-prose tr:nth-child(even) td {
+  background: var(--ey-surface);
+}
+
+.docx-prose img {
+  max-width: 100%;
+  margin: 16px auto;
+  display: block;
+}
+
+.docx-prose code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  background: #f0f0f0;
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+
+.docx-prose pre {
+  background: var(--ey-ink);
+  color: #e0e0e0;
+  padding: 16px;
+  overflow-x: auto;
+  margin: 16px 0;
+  font-size: 12px;
+}
+
+.docx-prose pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+
+.docx-prose strong {
+  font-weight: 600;
+}
+
+.docx-prose blockquote {
+  border-left: 3px solid var(--ey-primary);
+  padding-left: 16px;
+  margin: 16px 0;
+  color: #555;
+  font-style: italic;
+}
+
+/* ── Page divider ─────────────────────────────────── */
+.page-break-divider {
+  border: none;
+  border-top: 1px dashed #d0d0d0;
+  margin: 48px 0;
+  position: relative;
+}
+.page-break-divider::before {
+  content: 'PAGE BREAK';
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ey-surface);
+  font-size: 10px;
+  color: #999;
+  font-family: var(--font-sans);
+  letter-spacing: 0.1em;
+  padding: 0 8px;
+}
+
+/* ── Scrollbar ─────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d0d0d0; }
+::-webkit-scrollbar-thumb:hover { background: #999; }
+
+/* ── Drag state ─────────────────────────────────── */
+.drop-active {
+  border-color: var(--ey-primary) !important;
+  background: rgba(var(--ey-primary-rgb), 0.08) !important;
+}
+
+/* ── Template DOCX popup preview ───────────────────────── */
+.docx-preview-host .docx-wrapper {
+  background: #f0f0f0 !important;
+  padding: 12px 0 !important;
+}
+
+.docx-preview-host .docx {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  margin-bottom: 12px !important;
+}

@@ -1,0 +1,15 @@
+---
+description: Require phase readiness checklist before implementation
+alwaysApply: true
+---
+
+# Phase Readiness Checklist (Chat Gate)
+
+Before implementation starts for any phase, post a short checklist message in chat confirming:
+
+- Phase documents reviewed
+- Completed-phase code reviewed
+- Plan mode used and implementation plan prepared
+- Ready to begin implementation
+
+Implementation should start only after this checklist message is posted, unless the user explicitly asks to skip it.

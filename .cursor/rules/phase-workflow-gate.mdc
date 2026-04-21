@@ -1,0 +1,15 @@
+---
+description: Mandatory pre-implementation phase workflow
+alwaysApply: true
+---
+
+# Phase Start Workflow (Mandatory)
+
+Before starting implementation for any phase, complete this sequence in order:
+
+1. Review all documents related to the target phase.
+2. Review the code from completed phases to understand existing patterns and dependencies.
+3. Switch to plan mode and produce an implementation plan for the phase.
+4. Start implementation only after steps 1-3 are complete.
+
+Do not skip or reorder these steps unless the user explicitly asks to override this workflow.
