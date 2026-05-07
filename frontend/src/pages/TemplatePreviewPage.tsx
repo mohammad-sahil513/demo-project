@@ -1,79 +1,20 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { ArrowLeft, AlertCircle, Loader2 } from 'lucide-react'
-import { templateApi } from '../api/templateApi'
-import type { TemplateDto } from '../api/types'
-import { getApiErrorMessage } from '../api/errors'
-
-function formatArtifactLine(a: unknown, i: number): string {
-  if (a !== null && typeof a === 'object' && 'name' in a && typeof (a as { name: string }).name === 'string') {
-    return `- ${(a as { name: string }).name}`
-  }
-  try {
-    return `- \`${JSON.stringify(a)}\``
-  } catch {
-    return `- (artifact ${i + 1})`
-  }
-}
-
-function buildMetadataMarkdown(dto: TemplateDto): string {
-  const lines: string[] = []
-  lines.push(`# ${dto.filename}`)
-  lines.push('')
-  lines.push('Metadata from the template registry (`GET /templates/{id}`). Section structure is determined when you run a workflow, not from this preview.')
-  lines.push('')
-  lines.push('## Details')
-  lines.push('')
-  lines.push('| Field | Value |')
-  lines.push('| --- | --- |')
-  lines.push(`| template_id | \`${dto.template_id}\` |`)
-  lines.push(`| template_type | ${dto.template_type ?? '—'} |`)
-  lines.push(`| version | ${dto.version ?? '—'} |`)
-  lines.push(`| status | **${dto.status}** |`)
-  lines.push(`| compile_job_id | ${dto.compile_job_id ?? '—'} |`)
-  lines.push(`| created_at | ${dto.created_at} |`)
-  lines.push(`| updated_at | ${dto.updated_at} |`)
-  lines.push('')
-  lines.push('## Compiled artifacts')
-  lines.push('')
-  const arts = dto.compiled_artifacts ?? []
-  if (arts.length === 0) {
-    lines.push('_None stored on this template record._')
-  } else {
-    lines.push(`_Count: ${arts.length}_`)
-    lines.push('')
-    arts.forEach((a, i) => lines.push(formatArtifactLine(a, i)))
-  }
-  return lines.join('\n')
-}
+import { useTemplatePreview } from '../components/templates/useTemplatePreview'
+import { TemplatePreviewInfoPanel } from '../components/templates/TemplatePreviewInfoPanel'
 
 export function TemplatePreviewPage() {
   const navigate = useNavigate()
   const { templateId } = useParams<{ templateId: string }>()
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [dto, setDto] = useState<TemplateDto | null>(null)
+  const docxContainerRef = useRef<HTMLDivElement | null>(null)
+  const { loading, error, dto, previewHtml, isXlsxPreview, reloadPreview } = useTemplatePreview({
+    templateId: templateId || '',
+  })
 
   const fetchTemplate = useCallback(async () => {
-    if (!templateId) {
-      setError('Template ID is missing.')
-      setLoading(false)
-      return
-    }
-    setLoading(true)
-    setError(null)
-    try {
-      const data = await templateApi.getTemplateRaw(templateId)
-      setDto(data)
-    } catch (err: unknown) {
-      setError(getApiErrorMessage(err, 'Could not load template preview.'))
-      setDto(null)
-    } finally {
-      setLoading(false)
-    }
-  }, [templateId])
+    await reloadPreview(docxContainerRef.current)
+  }, [reloadPreview])
 
   useEffect(() => {
     fetchTemplate()
@@ -120,10 +61,17 @@ export function TemplatePreviewPage() {
             </button>
           </div>
         ) : dto ? (
-          <div className="bg-white w-full shadow-[0_1px_4px_rgba(0,0,0,0.08)] px-12 py-12">
-            <div className="docx-prose">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{buildMetadataMarkdown(dto)}</ReactMarkdown>
-            </div>
+          <div className="bg-white w-full shadow-[0_1px_4px_rgba(0,0,0,0.08)] px-8 py-8 space-y-6">
+            <TemplatePreviewInfoPanel dto={dto} isXlsxPreview={isXlsxPreview} />
+
+            {isXlsxPreview ? (
+              <div
+                className="font-body text-sm text-ey-ink-strong [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:border-ey-border [&_th]:bg-ey-surface [&_th]:p-2 [&_th]:text-left [&_td]:border [&_td]:border-ey-border [&_td]:p-2"
+                dangerouslySetInnerHTML={{ __html: previewHtml || '<div>No sheet preview available.</div>' }}
+              />
+            ) : (
+              <div ref={docxContainerRef} className="docx-preview-host" />
+            )}
           </div>
         ) : null}
       </div>

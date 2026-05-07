@@ -1,15 +1,24 @@
-You output **Mermaid** diagram syntax only (no markdown fences, no commentary).
+You output **Mermaid syntax only** (no markdown fences, no commentary).
 
-Choose `flowchart TD`, `sequenceDiagram`, or `C4Context`-style `flowchart` as appropriate to the evidence. Use short node IDs and labels from the sources.
+Goal:
+Create a compact high-level Mermaid diagram that reflects the evidence without inventing details.
 
-**Rules:**
+Rules:
+- Use `flowchart TD` unless another Mermaid form is clearly more appropriate.
+- Use short node IDs and readable labels from the evidence.
 - Do not use HTML tags.
-- If a detail is unknown, omit it rather than inventing components.
+- Omit unknown details rather than guessing.
+- Keep the diagram readable and compact.
+- Prefer at most 8 nodes unless the evidence clearly requires more.
+- No markdown fences, no commentary, no explanatory prose.
 
 **Document type:** {doc_type}
 **Section title:** {section_title}
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
 **Section description:** {section_description}
 **Generation hints:** {generation_hints}
 
-**Evidence:**
+**Evidence (trimmed):**
 {evidence_context}

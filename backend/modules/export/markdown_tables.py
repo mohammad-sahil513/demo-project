@@ -1,57 +1,91 @@
-"""Split markdown prose into text blocks and GFM pipe tables."""
-
+"""Compatibility layer for markdown/table parsing plus semantic content blocks."""
 from __future__ import annotations
 
-import re
 from typing import Literal
+
+from modules.export.content_blocks import (
+    ContentBlock,
+    parse_content_blocks,
+    parse_gfm_table,
+    parse_html_table,
+)
 
 BlockKind = Literal["text", "table"]
 
+def _rows_to_pipe_table(rows: list[list[str]]) -> str:
+    """
+    Convert parsed rows into a clean GitHub-flavored markdown pipe table string.
+    """
+    if not rows:
+        return ""
 
-def _is_table_line(line: str) -> bool:
-    s = line.strip()
-    return s.startswith("|") and s.count("|") >= 2
+    header = rows[0]
+    header_line = "| " + " | ".join(str(cell) for cell in header) + " |"
+    separator_line = "| " + " | ".join("---" for _ in header) + " |"
 
+    lines = [header_line, separator_line]
 
-def _is_separator_row(line: str) -> bool:
-    s = line.strip().strip("|").replace(" ", "")
-    if not s:
-        return False
-    parts = [p for p in s.split("|") if p]
-    return bool(parts) and all(re.fullmatch(r":?-{3,}:?", p) is not None for p in parts)
+    for row in rows[1:]:
+        normalized_row = [str(cell) for cell in row]
+        lines.append("| " + " | ".join(normalized_row) + " |")
 
-
-def parse_gfm_table(block: str) -> list[list[str]]:
-    raw_lines = [ln.rstrip() for ln in block.strip().splitlines() if ln.strip()]
-    table_lines = [ln for ln in raw_lines if _is_table_line(ln)]
-    if len(table_lines) >= 2 and _is_separator_row(table_lines[1]):
-        table_lines.pop(1)
-    rows: list[list[str]] = []
-    for line in table_lines:
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        rows.append(cells)
-    return rows
+    return "\n".join(lines)
 
 
 def split_markdown_blocks(content: str) -> list[tuple[BlockKind, str]]:
-    """Return ordered (kind, payload) where payload is prose or raw table lines."""
-    lines = content.splitlines()
-    blocks: list[tuple[BlockKind, str]] = []
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        if _is_table_line(line):
-            start = i
-            while i < len(lines) and _is_table_line(lines[i]):
-                i += 1
-            blocks.append(("table", "\n".join(lines[start:i])))
+    """
+    Backward-compatible API used by current builder/filler/xlsx code.
+
+    Notes:
+    - headings, images, captions, lists, and HTML tables are detected by the
+      richer semantic parser, but for backward compatibility this function maps:
+        * gfm/html tables -> ("table", normalized table text)
+        * everything else -> ("text", plain text payload)
+    """
+    blocks = parse_content_blocks(content)
+    out: list[tuple[BlockKind, str]] = []
+
+    for block in blocks:
+        if block.kind in {"table_gfm", "table_html"}:
+            normalized = block.text or _rows_to_pipe_table(block.rows)
+            if block.rows:
+                normalized = _rows_to_pipe_table(block.rows)
+            out.append(("table", normalized))
             continue
-        if not line.strip():
-            i += 1
+
+        if block.kind == "heading":
+            hashes = "#" * max(block.level, 1)
+            out.append(("text", f"{hashes} {block.text}".strip()))
             continue
-        start = i
-        i += 1
-        while i < len(lines) and lines[i].strip() and not _is_table_line(lines[i]):
-            i += 1
-        blocks.append(("text", "\n".join(lines[start:i]).strip()))
-    return blocks
+
+        if block.kind == "bullet_list":
+            out.append(("text", "\n".join(f"- {item}" for item in block.items)))
+            continue
+
+        if block.kind == "numbered_list":
+            out.append(("text", "\n".join(f"{idx + 1}. {item}" for idx, item in enumerate(block.items))))
+            continue
+
+        if block.kind == "image":
+            payload = block.text or (block.image_target or "")
+            out.append(("text", payload))
+            continue
+
+        if block.kind == "caption":
+            out.append(("text", block.text))
+            continue
+
+        # paragraph and any fallback kinds
+        out.append(("text", block.text))
+
+    return out
+
+
+__all__ = [
+    "ContentBlock",
+    "BlockKind",
+    "parse_content_blocks",
+    "parse_gfm_table",
+    "parse_html_table",
+    "split_markdown_blocks",
+]

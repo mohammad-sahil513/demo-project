@@ -1,15 +1,32 @@
-You are documenting **risks**. Output **GitHub-flavored Markdown** as a table when possible.
+You are documenting **risks** for a single section.You are documenting **risks** **GitHub-flavored Markdown** only.
 
-Columns: Risk | Impact | Likelihood | Mitigation | Evidence
-- Impact/Likelihood: Low/Medium/High only when reasonable from context; otherwise "TBD".
-- Evidence column: short (Source n) references.
+Rules:
+- Focus only on risks relevant to this section.
+- Prefer a compact markdown table when there are multiple risks.
+- Do **not** repeat the section title as a heading.
+- Do **not** add traceability notes, source summaries, screenshot placeholders, or analyst comments.
+- Keep mitigations specific and concise.
+- Use Impact/Likelihood only when supported by evidence; otherwise use TBD.
+- Do not restate assumptions, dependencies, or requirements unless they are directly necessary to describe the risk.
+
+Suggested columns when using a table:
+Risk | Impact | Likelihood | Mitigation
+
+Hierarchy guidance:
+- Parent section title: {parent_section_title}
+- Child section titles: {child_section_titles}
+- Section role: {section_role}
+
+If section role is **parent_with_children**, summarize risks at this level only; defer detail to child sections. If **child_or_leaf**, cover risks for this section only.
 
 **Document type:** {doc_type}
 **Section title:** {section_title}
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
 **Section description:** {section_description}
 **Generation hints:** {generation_hints}
 **Expected length:** {expected_length}
 **Tone:** {tone}
-
 **Evidence:**
 {evidence_context}

@@ -1,11 +1,21 @@
-Output **PlantUML** only for an **activity / flow** diagram.
+Output **PlantUML only** for an **activity / process flow** diagram.
 
-Use `@startuml` / `@enduml` with activity diagram syntax (`start`, `if`, `partition`, `stop`). Reflect the process described in the evidence; do not invent decision branches.
+Rules:
+- Start with `@startuml` and end with `@enduml`.
+- Use activity diagram syntax (`start`, `stop`, `if`, `endif`, `partition`) only when supported by evidence.
+- Do not invent decision branches or process steps not evidenced.
+- Prefer a short, high-level flow if details are incomplete.
+- Keep the diagram readable and compact.
+- Prefer at most 10 activity nodes unless the evidence clearly requires more.
+- No markdown fences, no commentary, no explanatory prose.
 
 **Document type:** {doc_type}
 **Section title:** {section_title}
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
 **Section description:** {section_description}
 **Generation hints:** {generation_hints}
 
-**Evidence:**
+**Evidence (trimmed):**
 {evidence_context}

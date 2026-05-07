@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from time import perf_counter
-from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,8 +12,10 @@ from api.router import api_router
 from core.config import ensure_storage_dirs, settings
 from core.exceptions import NotFoundException, SDLCBaseException
 from core.hosting import run_hosting_startup
-from core.logging import configure_logging, get_logger, verbose_logs_enabled
+from core.logging import configure_logging
 from core.response import error_response
+
+from core.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -39,50 +39,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    @app.middleware("http")
-    async def request_trace_middleware(request: Request, call_next):
-        if not verbose_logs_enabled():
-            return await call_next(request)
-
-        request_id = str(uuid4())
-        started_at = perf_counter()
-        body_text = ""
-        try:
-            raw_body = await request.body()
-            body_text = raw_body.decode("utf-8", errors="replace")
-        except Exception:
-            body_text = "<unavailable>"
-
-        logger.info(
-            "request.started request_id=%s method=%s path=%s query=%s body=%s",
-            request_id,
-            request.method,
-            request.url.path,
-            dict(request.query_params),
-            body_text[:2000],
-        )
-        try:
-            response = await call_next(request)
-        except Exception:
-            logger.exception(
-                "request.failed request_id=%s method=%s path=%s",
-                request_id,
-                request.method,
-                request.url.path,
-            )
-            raise
-
-        duration_ms = int((perf_counter() - started_at) * 1000)
-        logger.info(
-            "request.completed request_id=%s method=%s path=%s status_code=%s duration_ms=%s",
-            request_id,
-            request.method,
-            request.url.path,
-            response.status_code,
-            duration_ms,
-        )
-        return response
-
     @app.exception_handler(NotFoundException)
     async def handle_not_found(_: Request, exc: NotFoundException) -> JSONResponse:
         return error_response(
@@ -101,9 +57,13 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def handle_internal_error(_: Request, exc: Exception) -> JSONResponse:
+        logger.exception("unhandled_exception error=%s", str(exc))
+        detail = "An unexpected error occurred."
+        if settings.app_debug and settings.is_local_env():
+            detail = str(exc)
         return error_response(
             message="Internal server error",
-            errors=[{"code": "INTERNAL_ERROR", "detail": str(exc)}],
+            errors=[{"code": "INTERNAL_ERROR", "detail": detail}],
             status_code=500,
         )
 

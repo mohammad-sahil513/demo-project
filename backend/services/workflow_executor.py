@@ -8,7 +8,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 
-from core.constants import MODEL_PRICING, PHASE_WEIGHTS, TemplateStatus, WorkflowPhase, WorkflowStatus
+from core.constants import (
+    DOCX_EXPORT_POLICY_BLOCKING_CODES,
+    MODEL_PRICING,
+    PHASE_WEIGHTS,
+    SCHEMA_BLOCKING_CODES,
+    SCHEMA_WARNING_CODES,
+    TemplateStatus,
+    WorkflowPhase,
+    WorkflowStatus,
+)
 from core.exceptions import WorkflowException
 from core.ids import utc_now_iso
 from modules.ingestion.ingestion_coordinator import IngestionCoordinator, IngestionRunResult
@@ -33,12 +42,50 @@ from modules.template.inbuilt.registry import (
 from modules.template.models import SectionDefinition, StyleMap
 from repositories.document_models import DocumentRecord
 from core.config import settings
-from core.logging import get_logger
+from core.logging import append_workflow_cost_log, append_workflow_log, get_logger
 from services.event_service import EventService
 from services.output_service import OutputService
 from services.workflow_service import WorkflowService
 
 logger = get_logger(__name__)
+
+
+def merge_workflow_warnings(
+    existing: list[dict[str, object]] | None,
+    new: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Append new warnings without duplicate (code, section_id, message) tuples."""
+
+    def _key(w: dict[str, object]) -> tuple[str, str, str]:
+        return (
+            str(w.get("code") or ""),
+            str(w.get("section_id") or ""),
+            str(w.get("message") or ""),
+        )
+
+    out: list[dict[str, object]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for w in list(existing or []) + list(new):
+        k = _key(w)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(w)
+    return out
+
+
+def _resolved_section_placeholder_map(template: object) -> dict[str, list[str]] | None:
+    raw = getattr(template, "resolved_section_bindings", None) or {}
+    if not isinstance(raw, dict) or not raw:
+        return None
+    out: dict[str, list[str]] = {}
+    for k, v in raw.items():
+        sk = str(k)
+        if isinstance(v, list):
+            out[sk] = [str(x) for x in v]
+        elif v is not None:
+            out[sk] = [str(v)]
+    return out
 
 
 @dataclass(slots=True)
@@ -84,6 +131,25 @@ class WorkflowExecutor:
         self._document_assembler = document_assembler or DocumentAssembler()
         self._export_renderer = export_renderer or ExportRenderer(settings.storage_root)
 
+        # Phase 2: limit retrieval fan-out against Azure AI Search
+        self._max_concurrent_retrieval_sections = max(
+            1,
+            int(getattr(settings, "retrieval_max_concurrent_sections", 3)),
+        )
+        self._retrieval_semaphore = asyncio.Semaphore(self._max_concurrent_retrieval_sections)
+
+    def _wf_log(self, workflow_run_id: str, message: str, *, level: str = "INFO") -> None:
+        try:
+            append_workflow_log(workflow_run_id, message, level=level)
+        except Exception:
+            logger.exception("workflow.filelog.failed workflow_run_id=%s", workflow_run_id)
+
+    def _wf_cost_log(self, workflow_run_id: str, payload: dict[str, object]) -> None:
+        try:
+            append_workflow_cost_log(workflow_run_id, payload)
+        except Exception:
+            logger.exception("workflow.costlog.failed workflow_run_id=%s", workflow_run_id)
+
     async def _run_phase(
         self,
         workflow_run_id: str,
@@ -95,6 +161,7 @@ class WorkflowExecutor:
             workflow_run_id,
             phase.value,
         )
+        self._wf_log(workflow_run_id, f"phase.started phase={phase.value}")
         self._workflow_service.update(
             workflow_run_id,
             current_phase=phase.value,
@@ -115,6 +182,7 @@ class WorkflowExecutor:
                     phase.value,
                     attempt + 1,
                 )
+                self._wf_log(workflow_run_id, f"phase.attempt phase={phase.value} attempt={attempt + 1}")
                 await fn(workflow_run_id)
                 break
             except Exception as exc:
@@ -124,6 +192,11 @@ class WorkflowExecutor:
                     phase.value,
                     attempt + 1,
                     str(exc),
+                )
+                self._wf_log(
+                    workflow_run_id,
+                    f"phase.attempt_failed phase={phase.value} attempt={attempt + 1} error={str(exc)}",
+                    level="ERROR",
                 )
                 if attempt == 0:
                     await asyncio.sleep(2)
@@ -153,6 +226,10 @@ class WorkflowExecutor:
             progress,
             duration_ms,
         )
+        self._wf_log(workflow_run_id, f"phase.completed phase={phase.value} duration_ms={duration_ms}")
+    async def _run_retrieval_with_semaphore(self, coro):
+        async with self._retrieval_semaphore:
+            return await coro
 
     async def _phase_input_preparation(self, workflow_run_id: str) -> None:
         logger.info("inputpreparation.phase.enter workflow_run_id=%s", workflow_run_id)
@@ -272,17 +349,78 @@ class WorkflowExecutor:
 
     async def _phase_section_planning(self, workflow_run_id: str) -> None:
         logger.info("sectionplanning.phase.enter workflow_run_id=%s", workflow_run_id)
-        self._workflow_service.update(workflow_run_id, current_step_label="Section planning stub")
-        logger.info("sectionplanning.phase.completed workflow_run_id=%s", workflow_run_id)
+        workflow = self._workflow_service.get_or_raise(workflow_run_id)
+        template = self._workflow_service.get_template(workflow.template_id)
+        section_plan = [SectionDefinition.model_validate(item) for item in (workflow.section_plan or [])]
+
+        if not section_plan:
+            self._workflow_service.update(workflow_run_id, current_step_label="Section planning skipped (no sections)")
+            logger.info("sectionplanning.phase.skipped workflow_run_id=%s reason=no_sections", workflow_run_id)
+            return
+
+        planning_warnings: list[dict[str, object]] = []
+        has_sheet_schema = (
+            isinstance(workflow.sheet_map, dict)
+            and isinstance(workflow.sheet_map.get("schema"), list)
+            and len(workflow.sheet_map.get("schema") or []) > 0
+        )
+        ph_raw = (template.placeholder_schema or {}).get("placeholders")
+        has_placeholder_schema = isinstance(ph_raw, list) and len(ph_raw) > 0
+        if (
+            workflow.doc_type == "UAT"
+            and not is_inbuilt_template_id(workflow.template_id)
+            and not has_sheet_schema
+            and not has_placeholder_schema
+        ):
+            planning_warnings.append(
+                {"code": "schema_not_ready", "message": "UAT template schema is missing for this workflow."}
+            )
+
+        table_sections = [s for s in section_plan if s.output_type == "table"]
+        for section in table_sections:
+            if not section.table_headers and not section.required_fields:
+                planning_warnings.append(
+                    {
+                        "code": "table_contract_missing",
+                        "section_id": section.section_id,
+                        "message": "Table section has no table_headers/required_fields contract.",
+                    }
+                )
+
+        merged_warnings = merge_workflow_warnings(workflow.warnings, planning_warnings)
+        label = f"Section planning completed ({len(section_plan)} sections)"
+        if planning_warnings:
+            label = f"Section planning completed with {len(planning_warnings)} warnings"
+        obs = dict(workflow.observability_summary or {})
+        obs["section_planning_warning_codes"] = [
+            str(w.get("code") or "") for w in planning_warnings if isinstance(w, dict)
+        ]
+        obs["section_planning_warning_count"] = len(planning_warnings)
+        self._workflow_service.update(
+            workflow_run_id,
+            current_step_label=label,
+            warnings=merged_warnings,
+            observability_summary=obs,
+        )
+        logger.info(
+            "sectionplanning.phase.completed workflow_run_id=%s warnings=%s warning_codes=%s",
+            workflow_run_id,
+            len(planning_warnings),
+            obs["section_planning_warning_codes"],
+        )
 
     async def _phase_retrieval(self, workflow_run_id: str) -> None:
+        retrieval_started_at = perf_counter()
+
         workflow = self._workflow_service.get_or_raise(workflow_run_id)
         section_plan = [SectionDefinition.model_validate(item) for item in (workflow.section_plan or [])]
         logger.info(
-            "retrieval.enter workflow_run_id=%s sections=%s",
+            "retrieval.enter workflow_run_id=%s sections=%s max_concurrent=%s",
             workflow_run_id,
             len(section_plan),
+            self._max_concurrent_retrieval_sections,
         )
+
         if not section_plan:
             logger.info("retrieval.phase.skippednosections workflow_run_id=%s", workflow_run_id)
             self._workflow_service.update(workflow_run_id, current_step_label="Retrieval skipped (no sections)")
@@ -295,6 +433,7 @@ class WorkflowExecutor:
                 self._workflow_service.update(workflow_run_id, current_step_label=f"{message} (local skip)")
                 return
             raise WorkflowException(message)
+
         if not self._section_retriever.is_configured():
             message = "Retrieval not configured (missing Azure credentials)"
             if self._is_local_env():
@@ -306,33 +445,59 @@ class WorkflowExecutor:
                 return
             raise WorkflowException(message)
 
+        ordered_sections = sorted(section_plan, key=lambda s: s.execution_order)
+
         self._workflow_service.update(
             workflow_run_id,
-            current_step_label=f"Retrieving evidence for {len(section_plan)} sections",
+            current_step_label=f"Retrieving evidence for {len(ordered_sections)} sections",
         )
+
         retrieval_cost_tracker = _RetrievalCostTracker()
-        tasks = [
-            self._retrieve_one_section(workflow.document_id, section, retrieval_cost_tracker)
-            for section in section_plan
-        ]
+
+        tasks = []
+        for section in ordered_sections:
+            if section.content_mode in ("skip", "heading_only"):
+                tasks.append(
+                    self._run_retrieval_with_semaphore(self._empty_retrieval_for_section(section)),
+                )
+            else:
+                tasks.append(
+                    self._run_retrieval_with_semaphore(
+                        self._retrieve_one_section(
+                            workflow.document_id,
+                            section,
+                            retrieval_cost_tracker,
+                        ),
+                    ),
+                )
+
         outputs = await asyncio.gather(*tasks)
+
         logger.info(
-            "retrieval.sectiontasks.completed workflow_run_id=%s section_count=%s",
+            "retrieval.sectiontasks.completed workflow_run_id=%s section_count=%s max_concurrent=%s",
             workflow_run_id,
             len(outputs),
+            self._max_concurrent_retrieval_sections,
         )
 
         section_retrieval_results: dict[str, dict[str, object]] = {}
         total_embedding_cost_usd = 0.0
-        for section_id, bundle_dict, embedding_cost_usd in outputs:
+        total_chunks_retrieved = 0
+        zero_hit_sections = 0
+
+        for section_id, bundle_dict, embedding_cost_usd, chunk_count in outputs:
             section_retrieval_results[section_id] = bundle_dict
             total_embedding_cost_usd += embedding_cost_usd
+            total_chunks_retrieved += chunk_count
+            if chunk_count == 0:
+                zero_hit_sections += 1
 
         updated = self._workflow_service.update(
             workflow_run_id,
             section_retrieval_results=section_retrieval_results,
             current_step_label=f"Retrieved evidence for {len(section_retrieval_results)} sections",
         )
+
         observability_summary = merge_retrieval_observability(
             getattr(updated, "observability_summary", None),
             llm_cost_usd=retrieval_cost_tracker.llm_cost_usd,
@@ -342,17 +507,43 @@ class WorkflowExecutor:
             total_tokens_out=retrieval_cost_tracker.total_tokens_out,
             total_llm_calls=retrieval_cost_tracker.total_llm_calls,
         )
+
+        # Add phase-level retrieval metrics
+        observability_summary["retrieval_zero_hit_sections"] = zero_hit_sections
+        observability_summary["retrieval_total_chunks"] = total_chunks_retrieved
+        observability_summary["retrieval_phase_duration_ms"] = int((perf_counter() - retrieval_started_at) * 1000)
+        observability_summary["retrieval_max_concurrent_sections"] = self._max_concurrent_retrieval_sections
+
         self._workflow_service.update(workflow_run_id, observability_summary=observability_summary)
+        self._wf_cost_log(
+            workflow_run_id,
+            {
+                "event": "retrieval_cost",
+                "llm_cost_usd": retrieval_cost_tracker.llm_cost_usd,
+                "embedding_cost_usd": total_embedding_cost_usd,
+                "total_cost_usd": float(observability_summary.get("total_cost_usd", 0.0) or 0.0),
+                "retrieved_sections": len(section_retrieval_results),
+            },
+        )
+
         logger.info(
-            "retrieval.phase.completed workflow_run_id=%s retrieved_sections=%s retrieval_llm_cost_usd=%s embedding_cost_usd=%s",
+            "retrieval.phase.completed workflow_run_id=%s retrieved_sections=%s retrieval_llm_cost_usd=%s "
+            "embedding_cost_usd=%s total_chunks=%s zero_hit_sections=%s duration_ms=%s max_concurrent=%s",
             workflow_run_id,
             len(section_retrieval_results),
             retrieval_cost_tracker.llm_cost_usd,
             total_embedding_cost_usd,
+            total_chunks_retrieved,
+            zero_hit_sections,
+            observability_summary["retrieval_phase_duration_ms"],
+            self._max_concurrent_retrieval_sections,
         )
+
+
 
     async def _phase_generation(self, workflow_run_id: str) -> None:
         workflow = self._workflow_service.get_or_raise(workflow_run_id)
+        self._wf_log(workflow_run_id, "generation.phase.enter")
         section_plan = [SectionDefinition.model_validate(item) for item in (workflow.section_plan or [])]
         logger.info(
             "generation.enter workflow_run_id=%s sections=%s",
@@ -431,6 +622,15 @@ class WorkflowExecutor:
             total_llm_calls=cost_tracker.total_llm_calls,
         )
         self._workflow_service.update(workflow_run_id, observability_summary=observability_summary)
+        self._wf_cost_log(
+            workflow_run_id,
+            {
+                "event": "generation_cost",
+                "llm_cost_usd": cost_tracker.llm_cost_usd,
+                "total_cost_usd": float(observability_summary.get("total_cost_usd", 0.0) or 0.0),
+                "generated_sections": len(section_generation_results),
+            },
+        )
         logger.info(
             "generation.phase.completed workflow_run_id=%s completed=%s failed=%s llm_cost_usd=%s total_tokens_in=%s total_tokens_out=%s",
             workflow_run_id,
@@ -439,6 +639,11 @@ class WorkflowExecutor:
             cost_tracker.llm_cost_usd,
             cost_tracker.total_tokens_in,
             cost_tracker.total_tokens_out,
+        )
+        self._wf_log(
+            workflow_run_id,
+            "generation.phase.completed "
+            f"completed={completed} failed={failed} llm_cost_usd={cost_tracker.llm_cost_usd}",
         )
 
     async def _phase_assembly_validation(self, workflow_run_id: str) -> None:
@@ -502,6 +707,8 @@ class WorkflowExecutor:
                 template_id=template.template_id,
                 template_source=template.template_source,
                 file_path=template.file_path,
+                placeholder_schema=template.placeholder_schema,
+                section_placeholder_map=_resolved_section_placeholder_map(template),
             ),
             assembled=assembled,
             style_map=style_map,
@@ -509,6 +716,42 @@ class WorkflowExecutor:
         )
         wf2 = self._workflow_service.get_or_raise(workflow_run_id)
         render_warnings = list(wf2.warnings or []) + export_warnings
+        has_critical_export_warning = any((w or {}).get("code") in SCHEMA_BLOCKING_CODES for w in export_warnings)
+        has_docx_export_policy_block = any(
+            (w or {}).get("code") in DOCX_EXPORT_POLICY_BLOCKING_CODES for w in export_warnings
+        )
+        has_docx_integrity_failure = any(
+            (w or {}).get("code") in {
+                "docx_header_footer_integrity_failed",
+                "docx_relationship_integrity_failed",
+                "docx_media_integrity_failed",
+                "docx_forbidden_document_xml_mutation",
+                "docx_document_part_missing",
+            }
+            for w in export_warnings
+        )
+        if workflow.doc_type == "UAT" and has_critical_export_warning:
+            try:
+                if out_path.exists():
+                    out_path.unlink()
+            except Exception:
+                logger.exception("renderexport.cleanup.failed workflow_run_id=%s path=%s", workflow_run_id, str(out_path))
+            raise WorkflowException("Critical schema mismatch detected during UAT export.")
+        if has_docx_export_policy_block:
+            try:
+                if out_path.exists():
+                    out_path.unlink()
+            except Exception:
+                logger.exception("renderexport.cleanup.failed workflow_run_id=%s path=%s", workflow_run_id, str(out_path))
+            raise WorkflowException("Custom DOCX export blocked by template policy (see workflow warnings).")
+        if settings.template_fidelity_media_integrity_blocking and has_docx_integrity_failure:
+            try:
+                if out_path.exists():
+                    out_path.unlink()
+            except Exception:
+                logger.exception("renderexport.cleanup.failed workflow_run_id=%s path=%s", workflow_run_id, str(out_path))
+            raise WorkflowException("Critical DOCX integrity mismatch detected during strict export.")
+
         record = self._output_service.create(
             workflow_run_id=workflow_run_id,
             document_id=document.document_id,
@@ -516,11 +759,47 @@ class WorkflowExecutor:
             file_path=out_path,
             filename=filename,
         )
+
+        row_counts: dict[str, int] = {}
+        for section in assembled.sections:
+            content = (section.content or "").strip()
+            row_counts[section.title] = len([line for line in content.splitlines() if line.strip().startswith("|")])
+
+        schema_warning_count = len(
+            [w for w in export_warnings if (w or {}).get("code") in {"schema_mismatch", "missing_required_columns"}]
+        )
+        warning_counts: dict[str, int] = {}
+        for warn in export_warnings:
+            code = str((warn or {}).get("code") or "").strip()
+            if not code:
+                continue
+            warning_counts[code] = warning_counts.get(code, 0) + 1
+        schema_compliance_rate = 1.0 if not assembled.sections else max(
+            0.0, 1.0 - (schema_warning_count / len(assembled.sections))
+        )
+        observability_summary = dict(getattr(wf2, "observability_summary", None) or {})
+        observability_summary["uat_sheet_row_counts"] = row_counts
+        observability_summary["uat_schema_compliance_rate"] = schema_compliance_rate
+        observability_summary["uat_low_evidence_sections"] = int(
+            observability_summary.get("retrieval_zero_hit_sections", 0) or 0
+        )
+        observability_summary["uat_schema_warning_counts"] = warning_counts
+        observability_summary["uat_schema_warning_codes"] = sorted(list(SCHEMA_WARNING_CODES))
+        observability_summary["uat_schema_blocking_codes"] = sorted(list(SCHEMA_BLOCKING_CODES))
+        observability_summary["header_footer_integrity"] = (
+            "failed" if any(c == "docx_header_footer_integrity_failed" for c in warning_counts.keys()) else "pass"
+        )
+        observability_summary["media_integrity"] = (
+            "failed"
+            if any(c in {"docx_relationship_integrity_failed", "docx_media_integrity_failed"} for c in warning_counts.keys())
+            else "pass"
+        )
         self._workflow_service.update(
             workflow_run_id,
             output_id=record.output_id,
             warnings=render_warnings,
             current_step_label="Output file ready",
+            observability_summary=observability_summary,
         )
         await self._event_service.emit(
             workflow_run_id,
@@ -535,19 +814,27 @@ class WorkflowExecutor:
             len(render_warnings),
         )
 
+    async def _empty_retrieval_for_section(
+        self,
+        section: SectionDefinition,
+    ) -> tuple[str, dict[str, object], float, int]:
+        return (section.section_id, {"context_text": "", "citations": []}, 0.0, 0)
+
     async def _retrieve_one_section(
         self,
         document_id: str,
         section: SectionDefinition,
         cost_tracker: _RetrievalCostTracker,
-    ) -> tuple[str, dict[str, object], float]:
+    ) -> tuple[str, dict[str, object], float, int]:
         if self._section_retriever is None or self._evidence_packager is None:
             raise WorkflowException("Retrieval dependencies not configured.")
+
         chunks, embedding_cost_usd = await self._section_retriever.retrieve_for_section(
             section,
             document_id=document_id,
             cost_tracker=cost_tracker,
         )
+
         logger.info(
             "retrieval.section.completed document_id=%s section_id=%s chunk_count=%s embedding_cost_usd=%s",
             document_id,
@@ -555,16 +842,13 @@ class WorkflowExecutor:
             len(chunks),
             embedding_cost_usd,
         )
+
         bundle = self._evidence_packager.package(section.section_id, chunks)
         bundle_dict = {
             "context_text": bundle.context_text,
             "citations": [citation.model_dump() for citation in bundle.citations],
         }
-        return section.section_id, bundle_dict, embedding_cost_usd
-
-    @staticmethod
-    def _is_local_env() -> bool:
-        return settings.app_env.lower() in {"development", "dev", "local", "test"}
+        return section.section_id, bundle_dict, embedding_cost_usd, len(chunks)
 
     async def _run_ingestion_pipeline(
         self,
@@ -599,6 +883,17 @@ class WorkflowExecutor:
             },
         )
         self._workflow_service.update(workflow_run_id, observability_summary=merged)
+        self._wf_cost_log(
+            workflow_run_id,
+            {
+                "event": "ingestion_cost",
+                "embedding_cost_usd": result.embedding_cost_usd,
+                "document_intelligence_cost_usd": result.document_intelligence_cost_usd,
+                "total_cost_usd": float(merged.get("total_cost_usd", 0.0) or 0.0),
+                "page_count": result.page_count,
+                "indexed_chunk_count": result.chunk_count,
+            },
+        )
         logger.info(
             "ingestion.observability.updated workflow_run_id=%s embedding_cost_usd=%s document_intelligence_cost_usd=%s page_count=%s chunk_count=%s",
             workflow_run_id,
@@ -608,16 +903,29 @@ class WorkflowExecutor:
             result.chunk_count,
         )
 
+    def _is_local_env(self) -> bool:
+        env = str(getattr(settings, "app_env", "") or "").strip().lower()
+        return env in {"local", "development", "dev"}
+
+    def _runtime_policy_mode(self) -> str:
+        return "local-skip" if self._is_local_env() else "strict-fail"
+
     async def run(self, workflow_run_id: str) -> None:
         self._workflow_service.get_or_raise(workflow_run_id)
         logger.info("workflow.run.started workflow_run_id=%s", workflow_run_id)
+        self._wf_log(workflow_run_id, "workflow.started")
         self._workflow_service.update(
             workflow_run_id,
             status=WorkflowStatus.RUNNING.value,
             started_at=utc_now_iso(),
             current_step_label="Workflow started",
         )
-        await self._event_service.emit(workflow_run_id, "workflow.started", {"doc_type": "stub"})
+        workflow = self._workflow_service.get_or_raise(workflow_run_id)
+        await self._event_service.emit(
+            workflow_run_id,
+            "workflow.started",
+            {"doc_type": workflow.doc_type, "runtime_policy_mode": self._runtime_policy_mode()},
+        )
 
         try:
             await self._run_phase(
@@ -659,6 +967,17 @@ class WorkflowExecutor:
             workflow = self._workflow_service.get_or_raise(workflow_run_id)
             summary = getattr(workflow, "observability_summary", None) or {}
             total_cost = float(summary.get("total_cost_usd", 0.0))
+            self._wf_cost_log(
+                workflow_run_id,
+                {
+                    "event": "workflow_final_cost",
+                    "status": WorkflowStatus.COMPLETED.value,
+                    "total_cost_usd": total_cost,
+                    "llm_cost_usd": float(summary.get("llm_cost_usd", 0.0) or 0.0),
+                    "embedding_cost_usd": float(summary.get("embedding_cost_usd", 0.0) or 0.0),
+                    "document_intelligence_cost_usd": float(summary.get("document_intelligence_cost_usd", 0.0) or 0.0),
+                },
+            )
             try:
                 await self._event_service.emit(
                     workflow_run_id,
@@ -671,11 +990,27 @@ class WorkflowExecutor:
                     workflow_run_id,
                 )
             logger.info("workflow.run.completed workflow_run_id=%s", workflow_run_id)
+            self._wf_log(workflow_run_id, "workflow.completed")
         except Exception as exc:
             logger.exception(
                 "workflow.failed workflow_run_id=%s error=%s",
                 workflow_run_id,
                 str(exc),
+            )
+            self._wf_log(workflow_run_id, f"workflow.failed error={str(exc)}", level="ERROR")
+            snapshot = self._workflow_service.get_or_raise(workflow_run_id)
+            summary = dict(getattr(snapshot, "observability_summary", None) or {})
+            self._wf_cost_log(
+                workflow_run_id,
+                {
+                    "event": "workflow_final_cost",
+                    "status": WorkflowStatus.FAILED.value,
+                    "total_cost_usd": float(summary.get("total_cost_usd", 0.0) or 0.0),
+                    "llm_cost_usd": float(summary.get("llm_cost_usd", 0.0) or 0.0),
+                    "embedding_cost_usd": float(summary.get("embedding_cost_usd", 0.0) or 0.0),
+                    "document_intelligence_cost_usd": float(summary.get("document_intelligence_cost_usd", 0.0) or 0.0),
+                    "error": str(exc),
+                },
             )
             self._workflow_service.update(
                 workflow_run_id,

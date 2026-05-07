@@ -1,4 +1,12 @@
-The following PlantUML failed to render. Fix syntax and diagram validity. Output **PlantUML only** (no fences, no explanation).
+The following PlantUML failed to render. Fix only the diagram syntax and validity.
+
+Rules:
+- Output **PlantUML only**.
+- Start with `@startuml` and end with `@enduml`.
+- Do not include markdown fences.
+- Do not include commentary or explanations.
+- Preserve the original intent where possible.
+- If the original is too broken, produce a smaller valid high-level diagram using only the supported evidence.
 
 **Render error:**
 {render_error}
@@ -7,5 +15,9 @@ The following PlantUML failed to render. Fix syntax and diagram validity. Output
 {failed_diagram_source}
 
 **Section title:** {section_title}
-**Evidence summary (for context only):**
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
+
+**Evidence summary (trimmed):**
 {evidence_context}

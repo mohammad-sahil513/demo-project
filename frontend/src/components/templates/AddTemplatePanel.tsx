@@ -19,10 +19,13 @@ export function AddTemplatePanel({ onSuccess }: Props) {
   const [success, setSuccess] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  const allowedExtension = selectedType === 'UAT' ? 'xlsx' : 'docx'
+  const allowedLabel = allowedExtension.toUpperCase()
+
   const handleFile = (f: File) => {
     const ext = f.name.split('.').pop()?.toLowerCase()
-    if (ext !== 'docx') {
-      setError('Only DOCX files are accepted for templates.')
+    if (ext !== allowedExtension) {
+      setError(`Only ${allowedLabel} files are accepted for ${selectedType ?? 'selected'} templates.`)
       return
     }
     setError(null)
@@ -41,7 +44,7 @@ export function AddTemplatePanel({ onSuccess }: Props) {
   const handleSubmit = async () => {
     if (!canSubmit) {
       if (!selectedType) setError('Select a document type first.')
-      else if (!file) setError('Upload a DOCX template file.')
+      else if (!file) setError(`Upload a ${allowedLabel} template file.`)
       return
     }
     setError(null)
@@ -104,8 +107,13 @@ export function AddTemplatePanel({ onSuccess }: Props) {
 
         <div>
           <label className="font-body text-[10px] tracking-widest uppercase text-ey-muted font-medium block mb-2">
-            Template File (DOCX)
+            Template File ({allowedLabel})
           </label>
+          {selectedType === 'UAT' && (
+            <p className="font-body text-xs text-ey-muted mb-2">
+              Use row-1 headers in each sheet. These headers are used as schema for UAT export validation.
+            </p>
+          )}
 
           {file ? (
             <div className="border border-ey-border px-4 py-3 flex items-center gap-3 animate-fade-in">
@@ -137,14 +145,14 @@ export function AddTemplatePanel({ onSuccess }: Props) {
             >
               <Upload size={20} className={isDragging ? 'text-ey-ink-strong' : 'text-ey-muted'} />
               <p className="font-body text-sm text-ey-muted text-center">
-                Drop DOCX here or <span className="text-ey-ink-strong font-medium underline">browse</span>
+                Drop {allowedLabel} here or <span className="text-ey-ink-strong font-medium underline">browse</span>
               </p>
             </div>
           )}
           <input
             ref={fileRef}
             type="file"
-            accept=".docx"
+            accept={allowedExtension === 'xlsx' ? '.xlsx' : '.docx'}
             className="hidden"
             onChange={(e: ChangeEvent<HTMLInputElement>) => {
               const f = e.target.files?.[0]

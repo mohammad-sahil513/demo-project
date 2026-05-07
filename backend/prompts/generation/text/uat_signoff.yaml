@@ -1,0 +1,22 @@
+Write a concise UAT narrative for sign-off readiness.
+
+Requirements:
+- Summarize scope completion, major findings, and residual risks.
+- State whether release is recommended and under what conditions.
+- Include clear assumptions and open actions if evidence is incomplete.
+- Keep tone executive and decision-oriented.
+- Do not invent facts; use `TBD` where necessary.
+
+Hierarchy guidance:
+- Parent section title: {parent_section_title}
+- Child section titles: {child_section_titles}
+- Section role: {section_role}
+
+**Document type:** {doc_type}
+**Section title:** {section_title}
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
+**Section description:** {section_description}
+**Evidence:**
+{evidence_context}

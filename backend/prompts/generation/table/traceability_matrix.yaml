@@ -7,6 +7,9 @@ Columns exactly: {table_headers}
 
 **Document type:** {doc_type}
 **Section title:** {section_title}
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
 **Section description:** {section_description}
 **Generation hints:** {generation_hints}
 

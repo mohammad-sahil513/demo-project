@@ -47,9 +47,11 @@ async def list_documents(document_service: DocumentService = Depends(get_documen
 async def get_document(document_id: str, document_service: DocumentService = Depends(get_document_service)) -> object:
     logger.info("documents.get.started document_id=%s", document_id)
     record = document_service.get_or_raise(document_id)
+    payload = record.model_dump()
+    payload["cost_summary"] = document_service.cost_summary(document_id)
     if verbose_logs_enabled():
         logger.info("documents.get.completed document_id=%s filename=%s", document_id, record.filename)
-    return success_response(record.model_dump())
+    return success_response(payload)
 
 
 @router.delete("/{document_id}")
@@ -61,3 +63,20 @@ async def delete_document(
     document_service.delete(document_id)
     logger.info("documents.delete.completed document_id=%s", document_id)
     return success_response({"document_id": document_id}, message="Document deleted")
+
+
+@router.get("/{document_id}/cost")
+async def get_document_cost(
+    document_id: str,
+    document_service: DocumentService = Depends(get_document_service),
+) -> object:
+    logger.info("documents.cost.started document_id=%s", document_id)
+    document_service.get_or_raise(document_id)
+    data = document_service.cost_summary(document_id)
+    logger.info(
+        "documents.cost.completed document_id=%s workflow_count=%s total_cost_usd=%s",
+        document_id,
+        data.get("workflow_count", 0),
+        data.get("total_cost_usd", 0.0),
+    )
+    return success_response(data)

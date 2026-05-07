@@ -1,23 +1,35 @@
+import { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Navbar } from './components/layout/Navbar'
-import { UploadPage } from './pages/UploadPage'
-import { ProgressPage } from './pages/ProgressPage'
-import { OutputPage } from './pages/OutputPage'
-import { TemplatesPage } from './pages/TemplatesPage'
-import { TemplatePreviewPage } from './pages/TemplatePreviewPage'
+
+const UploadPage = lazy(() => import('./pages/UploadPage').then((m) => ({ default: m.UploadPage })))
+const ProgressPage = lazy(() => import('./pages/ProgressPage').then((m) => ({ default: m.ProgressPage })))
+const OutputPage = lazy(() => import('./pages/OutputPage').then((m) => ({ default: m.OutputPage })))
+const TemplatesPage = lazy(() => import('./pages/TemplatesPage').then((m) => ({ default: m.TemplatesPage })))
+const TemplatePreviewPage = lazy(() =>
+  import('./pages/TemplatePreviewPage').then((m) => ({ default: m.TemplatePreviewPage })),
+)
 
 export default function App() {
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-white">
         <Navbar />
-        <Routes>
-          <Route path="/"          element={<UploadPage />} />
-          <Route path="/progress"  element={<ProgressPage />} />
-          <Route path="/output"    element={<OutputPage />} />
-          <Route path="/templates" element={<TemplatesPage />} />
-          <Route path="/templates/:templateId/preview" element={<TemplatePreviewPage />} />
-        </Routes>
+        <Suspense
+          fallback={
+            <div className="px-8 py-10">
+              <p className="font-body text-sm text-ey-muted">Loading page…</p>
+            </div>
+          }
+        >
+          <Routes>
+            <Route path="/" element={<UploadPage />} />
+            <Route path="/progress" element={<ProgressPage />} />
+            <Route path="/output" element={<OutputPage />} />
+            <Route path="/templates" element={<TemplatesPage />} />
+            <Route path="/templates/:templateId/preview" element={<TemplatePreviewPage />} />
+          </Routes>
+        </Suspense>
       </div>
     </BrowserRouter>
   )

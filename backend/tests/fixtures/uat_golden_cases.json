@@ -1,0 +1,26 @@
+[
+  {
+    "name": "row1_headers",
+    "sheets": [
+      {"title": "Test Cases", "rows": [["ID", "Scenario", "Steps", "Expected Result"], ["TC-1", "Login", "Open app", "Success"]]}
+    ],
+    "expected_sheet": "Test Cases",
+    "expected_headers": ["ID", "Scenario", "Steps", "Expected Result"]
+  },
+  {
+    "name": "duplicate_headers",
+    "sheets": [
+      {"title": "Defects", "rows": [["Defect", "Defect", "Severity"], ["Broken login", "AUTH-1", "High"]]}
+    ],
+    "expected_sheet": "Defects",
+    "expected_headers": ["Defect", "Defect_2", "Severity"]
+  },
+  {
+    "name": "heuristic_header_row2",
+    "sheets": [
+      {"title": "Signoff", "rows": [["", "", ""], ["Owner", "Status", "Date"], ["QA", "Approved", "2026-04-30"]]}
+    ],
+    "expected_sheet": "Signoff",
+    "expected_headers": ["Owner", "Status", "Date"]
+  }
+]

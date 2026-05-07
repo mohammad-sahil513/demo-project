@@ -22,21 +22,45 @@ async def health() -> object:
 @router.get("/ready")
 async def ready() -> object:
     logger.info("ready.check.started")
+    storage_writable = verify_storage_writable(settings.storage_root)
+    failed_checks: list[str] = []
+    if not storage_writable:
+        failed_checks.append("storage_writable")
+
+    azure_openai_configured = bool(settings.azure_openai_endpoint and settings.azure_openai_api_key)
+    azure_search_configured = bool(settings.azure_search_endpoint and settings.azure_search_api_key)
+    azure_doc_intelligence_configured = bool(
+        settings.azure_document_intelligence_endpoint and settings.azure_document_intelligence_key
+    )
+    if not settings.is_local_env():
+        if not azure_openai_configured:
+            failed_checks.append("azure_openai_configured")
+        if not azure_search_configured:
+            failed_checks.append("azure_search_configured")
+        if not azure_doc_intelligence_configured:
+            failed_checks.append("azure_doc_intelligence_configured")
+
+    critical_checks_passed = len(failed_checks) == 0
+    status = "ready" if critical_checks_passed else "not_ready"
     data = {
-        "status": "ready",
+        "status": status,
         "app": settings.app_name,
         "env": settings.app_env,
-        "azure_openai_configured": bool(settings.azure_openai_endpoint),
-        "azure_search_configured": bool(settings.azure_search_endpoint),
-        "azure_doc_intelligence_configured": bool(settings.azure_document_intelligence_endpoint),
+        "azure_openai_configured": azure_openai_configured,
+        "azure_search_configured": azure_search_configured,
+        "azure_doc_intelligence_configured": azure_doc_intelligence_configured,
         "kroki_url": settings.kroki_url,
         "storage_root": str(settings.storage_root),
-        "storage_writable": verify_storage_writable(settings.storage_root),
+        "storage_writable": storage_writable,
+        "critical_checks_passed": critical_checks_passed,
+        "failed_checks": failed_checks,
     }
     logger.info(
-        "ready.check.completed status=%s env=%s storage_writable=%s",
+        "ready.check.completed status=%s env=%s storage_writable=%s failed_checks=%s",
         data["status"],
         data["env"],
         data["storage_writable"],
+        failed_checks,
     )
-    return success_response(data)
+    status_code = 200 if critical_checks_passed else 503
+    return success_response(data, status_code=status_code)

@@ -89,44 +89,71 @@ PHASE_WEIGHTS: Final[dict[WorkflowPhase, float]] = {
     WorkflowPhase.RENDER_EXPORT: 5.0,
 }
 
-
 # --- LLM pricing ($ per 1K tokens) — update when Azure pricing changes ---
+# IMPORTANT: keys match TASK_TO_MODEL values / adapter aliases.
 MODEL_PRICING: Final[dict[str, dict[str, float]]] = {
-    "gpt5": {"input": 0.015, "output": 0.060},
-    "gpt5mini": {"input": 0.00015, "output": 0.0006},
+    "gpt-5": {"input": 0.015, "output": 0.060},
+    "gpt-5-mini": {"input": 0.00015, "output": 0.0006},
     "text-embedding-3-large": {"input": 0.00013, "output": 0.0},
+    "text-embedding-3-small": {"input": 0.00002, "output": 0.0},
 }
 
 # --- LLM task routing ---
 TASK_TO_MODEL: Final[dict[str, str]] = {
-    "diagram_generation": "gpt5",
-    "diagram_correction": "gpt5",
-    "complex_section": "gpt5",
-    "text_generation": "gpt5mini",
-    "table_generation": "gpt5mini",
-    "template_classification": "gpt5mini",
-    "retrieval_query_generation": "gpt5mini",
+    "diagram_generation": "gpt-5",
+    "diagram_correction": "gpt-5",
+    "complex_section": "gpt-5",
+    "text_generation": "gpt-5-mini",
+    "table_generation": "gpt-5-mini",
+    "template_classification": "gpt-5-mini",
+    "retrieval_query_generation": "gpt-5-mini",
 }
 
+# Keep lightweight tasks lean; reserve stronger reasoning for genuinely harder tasks.
 TASK_TO_REASONING_EFFORT: Final[dict[str, str]] = {
-    "diagram_generation": "high",
-    "diagram_correction": "high",
+    "diagram_generation": "medium",
+    "diagram_correction": "low",
     "complex_section": "high",
-    "text_generation": "medium",
-    "table_generation": "medium",
+    "text_generation": "low",
+    "table_generation": "low",
     "template_classification": "low",
     "retrieval_query_generation": "low",
 }
 
+# Smaller, task-aware budgets reduce the chance of spending the whole completion budget
+# in reasoning with no visible content.
 TASK_TO_MAX_COMPLETION_TOKENS: Final[dict[str, int]] = {
-    "diagram_generation": 3000,
-    "diagram_correction": 3000,
-    "complex_section": 2500,
-    "text_generation": 1000,
-    "table_generation": 2000,
-    "template_classification": 800,
-    "retrieval_query_generation": 300,
+    "diagram_generation": 10000,
+    "diagram_correction": 12000,
+    "complex_section": 10000,
+    "text_generation": 8000,
+    "table_generation": 8000,
+    "template_classification": 2000,
+    "retrieval_query_generation": 1000,
 }
 
 # Azure Document Intelligence — rough $ per page (prebuilt-layout); tune to your SKU/region.
 DOCUMENT_INTELLIGENCE_USD_PER_PAGE: Final[float] = 0.01
+retrieval_max_concurrent_sections: int = 3
+
+# UAT schema validation severity policy.
+SCHEMA_WARNING_CODES: Final[set[str]] = {
+    "unmapped_generated_columns",
+}
+SCHEMA_BLOCKING_CODES: Final[set[str]] = {
+    "schema_mismatch",
+    "missing_required_columns",
+    "docx_header_footer_integrity_failed",
+    "docx_relationship_integrity_failed",
+    "docx_media_integrity_failed",
+    "docx_forbidden_document_xml_mutation",
+    "docx_document_part_missing",
+}
+
+# Custom DOCX export policy: workflow fails and output is not persisted when any of these appear.
+DOCX_EXPORT_POLICY_BLOCKING_CODES: Final[frozenset[str]] = frozenset(
+    {
+        "docx_legacy_export_disallowed",
+        "docx_native_prerequisites_unmet",
+    }
+)

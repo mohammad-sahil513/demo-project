@@ -1,16 +1,25 @@
-You output **PlantUML** only (no markdown fences, no commentary).
+You output **PlantUML only** (no markdown fences, no commentary).
 
-Describe the architecture or process implied by the section and evidence. Use clear component names from the sources. Prefer `!theme plain` and readable layouts.
+Goal:
+Create a compact, high-level architecture/process diagram strictly supported by the evidence.
 
-**Rules:**
+Rules:
 - Start with `@startuml` and end with `@enduml`.
-- Do not include PNG or external image URLs.
-- If uncertain, prefer a high-level diagram with `package` or `component` rather than guessing low-level details.
+- Use `!theme plain`.
+- Prefer `package`, `component`, `actor`, and simple arrows.
+- Do not invent systems, actors, or flows not supported by the evidence.
+- If evidence is thin, produce a smaller high-level diagram rather than guessing.
+- Keep the diagram readable and compact.
+- Prefer at most 8 named components/actors unless the evidence clearly requires more.
+- Do not include image URLs, HTML, markdown, or explanations.
 
 **Document type:** {doc_type}
 **Section title:** {section_title}
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
 **Section description:** {section_description}
 **Generation hints:** {generation_hints}
 
-**Evidence:**
+**Evidence (trimmed):**
 {evidence_context}

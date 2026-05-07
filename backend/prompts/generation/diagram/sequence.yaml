@@ -1,11 +1,21 @@
-Output **PlantUML** only for a **sequence diagram**.
+Output **PlantUML only** for a **sequence diagram**.
 
-Use `@startuml` / `@enduml`, `autonumber`, and participants named from the evidence. Only include messages supported by the sources; otherwise omit.
+Rules:
+- Start with `@startuml` and end with `@enduml`.
+- Use `autonumber`.
+- Include only participants and messages supported by evidence.
+- Omit uncertain messages rather than inventing them.
+- Keep the sequence compact and readable.
+- Prefer at most 6 participants unless the evidence clearly requires more.
+- No markdown fences, no commentary, no explanatory prose.
 
 **Document type:** {doc_type}
 **Section title:** {section_title}
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
 **Section description:** {section_description}
 **Generation hints:** {generation_hints}
 
-**Evidence:**
+**Evidence (trimmed):**
 {evidence_context}

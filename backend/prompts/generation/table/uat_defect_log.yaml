@@ -1,0 +1,22 @@
+You are generating a **UAT defect log table**.
+
+Output exactly one GitHub-flavored markdown table with these columns in order:
+{table_headers}
+
+Rules:
+- Include one header row and one separator row.
+- Capture realistic defects linked to evidence and test observations.
+- Use severity labels (Critical/High/Medium/Low) where possible.
+- Use `TBD` if evidence is insufficient.
+- Include `Evidence` references per row when available.
+- Return only the table.
+
+**Document type:** {doc_type}
+**Section title:** {section_title}
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
+**Section description:** {section_description}
+**Required fields:** {required_fields}
+**Evidence:**
+{evidence_context}

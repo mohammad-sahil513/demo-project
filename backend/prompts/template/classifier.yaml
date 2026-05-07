@@ -1,27 +1,47 @@
-You are a template compiler assistant.
+prompt: |
+  You are a template compiler assistant.
 
-Classify each heading into one JSON object with fields:
-- heading (string)
-- output_type (text|table|diagram)
-- description (short)
-- prompt_selector (string)
-- required_fields (array of strings, optional)
-- is_complex (boolean)
+  Classify each input heading into exactly one section object.
+  Preserve the input order exactly.
+  Return one output object per heading.
+  Do not omit headings.
+  Do not add extra keys beyond those shown below (no heading_key — the server assigns stable keys from heading order).
+  If unsure, use output_type = "text".
 
-Return STRICT JSON object:
-{
-  "sections": [
-    {
-      "heading": "...",
-      "output_type": "text",
-      "description": "...",
-      "prompt_selector": "default",
-      "required_fields": [],
-      "is_complex": false
-    }
-  ]
-}
+  Allowed output_type values:
+  - text
+  - table
+  - diagram
 
-Template title: {title}
-Headings:
-{headings}
+  Return STRICT JSON only in this exact shape:
+  {
+    "sections": [
+      {
+        "heading": "string",
+        "output_type": "text",
+        "description": "short description",
+        "prompt_selector": "default",
+        "required_fields": [],
+        "is_complex": false,
+        "content_mode": "generate"
+      }
+    ]
+  }
+
+  Optional content_mode per section (default generate if omitted):
+  - "generate" — normal retrieval and LLM generation.
+  - "skip" — no retrieval; no generated body (outline placeholder / export uses template).
+  - "heading_only" — no retrieval; empty body, heading retained in structure.
+
+  Notes:
+  - The input may include [L1], [L2], [L3] markers. These indicate heading depth and are already determined by the compiler.
+  - Do not reinterpret the hierarchy. Only classify the content type and section metadata.
+  - If a heading sounds tabular, use "table".
+  - If a heading clearly requests a diagram/architecture/flow/sequence/component view, use "diagram".
+  - Otherwise use "text".
+
+  Template title:
+  $title
+
+  Headings:
+  $headings

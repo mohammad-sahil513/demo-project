@@ -270,4 +270,3 @@ Do not remove `docx-preview` if template preview must remain.
 - Dev server/proxy: `frontend/vite.config.ts`
 - Env contract: `frontend/.env.example`
 - Flow and API contract summary: `frontend/README.md`
-

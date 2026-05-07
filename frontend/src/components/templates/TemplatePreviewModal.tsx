@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
-import { X, Loader2, AlertCircle, ChevronDown, ChevronRight, FileText } from 'lucide-react'
-import { renderAsync } from 'docx-preview'
-import { templateApi } from '../../api/templateApi'
-import type { TemplateDto } from '../../api/types'
-import { getApiErrorMessage } from '../../api/errors'
+import { useEffect, useCallback, useRef } from 'react'
+import { X, Loader2, AlertCircle } from 'lucide-react'
 import { Template } from '../../store/useJobStore'
+import { TemplateSchemaPanel } from './TemplateSchemaPanel'
+import { TemplateValidationPanel } from './TemplateValidationPanel'
+import { useTemplatePreview } from './useTemplatePreview'
+import { TemplatePreviewInfoPanel } from './TemplatePreviewInfoPanel'
 
 interface Props {
   template: Template
@@ -12,40 +12,15 @@ interface Props {
 }
 
 export function TemplatePreviewModal({ template, onClose }: Props) {
-  const [loadingMeta, setLoadingMeta] = useState(true)
-  const [loadingDocx, setLoadingDocx] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [dto, setDto] = useState<TemplateDto | null>(null)
-  const [showMetadata, setShowMetadata] = useState(false)
   const docxContainerRef = useRef<HTMLDivElement | null>(null)
+  const { loading, error, dto, previewHtml, isXlsxPreview, reloadPreview } = useTemplatePreview({
+    templateId: template.id,
+    fallbackTemplateType: template.type,
+  })
 
   const fetchPreview = useCallback(async () => {
-    setLoadingMeta(true)
-    setLoadingDocx(true)
-    setError(null)
-    try {
-      const [data, binary] = await Promise.all([
-        templateApi.getTemplateRaw(template.id),
-        templateApi.getTemplateBinary(template.id),
-      ])
-      setDto(data)
-      if (docxContainerRef.current) {
-        docxContainerRef.current.innerHTML = ''
-        await renderAsync(binary, docxContainerRef.current, undefined, {
-          className: 'docx-preview-content',
-          inWrapper: true,
-          ignoreWidth: false,
-          ignoreHeight: false,
-        })
-      }
-    } catch (err: unknown) {
-      setError(getApiErrorMessage(err, 'Could not load template preview.'))
-      setDto(null)
-    } finally {
-      setLoadingMeta(false)
-      setLoadingDocx(false)
-    }
-  }, [template.id])
+    await reloadPreview(docxContainerRef.current)
+  }, [reloadPreview])
 
   useEffect(() => {
     fetchPreview()
@@ -64,6 +39,7 @@ export function TemplatePreviewModal({ template, onClose }: Props) {
   }, [onClose])
 
   const titleType = dto?.template_type || template.type || template.id
+  const schemaItems = ((dto?.sheet_map as { schema?: Array<Record<string, unknown>> } | undefined)?.schema ?? [])
 
   return (
     <div
@@ -99,34 +75,11 @@ export function TemplatePreviewModal({ template, onClose }: Props) {
           </button>
         </div>
 
-        <div className="border-b border-ey-border bg-white px-8 py-3">
-          <button
-            type="button"
-            onClick={() => setShowMetadata((v) => !v)}
-            className="inline-flex items-center gap-2 font-body text-xs font-semibold tracking-widest uppercase text-ey-muted hover:text-ey-ink-strong"
-          >
-            {showMetadata ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            Metadata
-          </button>
-          {showMetadata && dto && (
-            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 font-body text-xs text-ey-muted">
-              <p><span className="font-semibold text-ey-ink-strong">ID:</span> {dto.template_id}</p>
-              <p><span className="font-semibold text-ey-ink-strong">Type:</span> {dto.template_type ?? '—'}</p>
-              <p><span className="font-semibold text-ey-ink-strong">Version:</span> {dto.version ?? '—'}</p>
-              <p><span className="font-semibold text-ey-ink-strong">Status:</span> {dto.status}</p>
-              <p><span className="font-semibold text-ey-ink-strong">Created:</span> {dto.created_at}</p>
-              <p><span className="font-semibold text-ey-ink-strong">Updated:</span> {dto.updated_at}</p>
-              <p><span className="font-semibold text-ey-ink-strong">Compile job:</span> {dto.compile_job_id ?? '—'}</p>
-              <p><span className="font-semibold text-ey-ink-strong">Artifacts:</span> {dto.compiled_artifacts?.length ?? 0}</p>
-            </div>
-          )}
-        </div>
-
         <div className="flex-1 overflow-y-auto bg-ey-canvas min-h-[420px]">
-          {loadingMeta || loadingDocx ? (
+          {loading ? (
             <div className="flex flex-col items-center justify-center h-full min-h-[320px] gap-4">
               <Loader2 size={28} className="animate-spin text-ey-muted" />
-              <p className="font-body text-sm text-ey-muted">Loading template DOCX…</p>
+              <p className="font-body text-sm text-ey-muted">Loading template preview…</p>
             </div>
           ) : error ? (
             <div className="flex flex-col items-center justify-center min-h-[320px] gap-4 px-8 text-center">
@@ -139,11 +92,67 @@ export function TemplatePreviewModal({ template, onClose }: Props) {
           ) : (
             <div className="py-10 px-6">
               <div className="bg-white w-full max-w-[980px] mx-auto shadow-[0_1px_4px_rgba(0,0,0,0.08)] px-8 py-8 animate-fade-in">
-                <div className="flex items-center gap-2 mb-4 text-ey-muted">
-                  <FileText size={14} />
-                  <p className="font-body text-xs uppercase tracking-widest">Document view</p>
-                </div>
-                <div ref={docxContainerRef} className="docx-preview-host" />
+                {dto && <TemplatePreviewInfoPanel dto={dto} isXlsxPreview={isXlsxPreview} />}
+                {isXlsxPreview ? (
+                  <div className="space-y-4">
+                    <div
+                      className="font-body text-sm text-ey-ink-strong [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:border-ey-border [&_th]:bg-ey-surface [&_th]:p-2 [&_th]:text-left [&_td]:border [&_td]:border-ey-border [&_td]:p-2"
+                      dangerouslySetInnerHTML={{ __html: previewHtml || '<div>No sheet preview available.</div>' }}
+                    />
+                    {schemaItems.length > 0 && (
+                      <div className="border border-ey-border bg-ey-surface/60 p-4">
+                        <p className="font-body text-xs uppercase tracking-widest text-ey-muted mb-3">Schema summary</p>
+                        <div className="space-y-3">
+                          {schemaItems.map((item, idx) => {
+                            const sheetName = String(item.sheet_name || item.name || `Sheet ${idx + 1}`)
+                            const headers = Array.isArray(item.headers) ? item.headers : []
+                            const required = Array.isArray(item.required_columns) ? item.required_columns : headers
+                            const detectionMeta =
+                              item && typeof item === 'object' && 'header_detection_metadata' in item
+                                ? (item as { header_detection_metadata?: Record<string, unknown> }).header_detection_metadata
+                                : undefined
+                            const missingRequired = required.filter((r) => !headers.includes(r))
+                            return (
+                              <div key={`${sheetName}-${idx}`} className="font-body text-xs text-ey-ink-strong">
+                                <p className="font-semibold">{sheetName}</p>
+                                <p>Headers: {headers.length ? headers.join(', ') : 'None detected'}</p>
+                                <p>Required: {required.length ? required.join(', ') : 'None'}</p>
+                                {missingRequired.length > 0 && (
+                                  <p className="text-amber-700">Missing required: {missingRequired.join(', ')}</p>
+                                )}
+                                {detectionMeta && (
+                                  <p className="text-ey-muted">
+                                    Detection: {String(detectionMeta.mode || 'n/a')} row{' '}
+                                    {String(detectionMeta.selected_row || 'n/a')}
+                                  </p>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div ref={docxContainerRef} className="docx-preview-host" />
+                    {dto && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <TemplateSchemaPanel
+                          schemaVersion={dto.schema_version}
+                          placeholderSchema={dto.placeholder_schema}
+                          resolvedSectionBindings={dto.resolved_section_bindings}
+                          exportPathHint={dto.export_path_hint}
+                        />
+                        <TemplateValidationPanel
+                          validationStatus={dto.validation_status}
+                          errors={dto.validation_errors}
+                          warnings={dto.validation_warnings}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}

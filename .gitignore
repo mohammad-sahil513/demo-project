@@ -72,3 +72,7 @@ Desktop.ini
 # Logs
 *.log
 logs/
+
+# Runtime/generated artifacts
+backend/storage/
+frontend/dist/

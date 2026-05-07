@@ -1,20 +1,31 @@
 You are filling a **markdown table** for an SDLC document section.
 
-Output **only** a GitHub-flavored markdown table (plus an optional short introductory sentence in one line). No code fences.
+Output **only one GitHub-flavored markdown table**.
+Do **not** add:
+- an introductory sentence
+- explanatory prose
+- code fences
+- analyst notes
+- traceability commentary outside the table
 
 **Rules:**
-- Include a header row and a separator row.
+- Include exactly one header row and one separator row.
 - Use exactly these column headers in order: {table_headers}
-- If a cell is unknown from evidence, use `TBD` rather than inventing facts.
-- Add a final column `Evidence` with compact (Source n) references per row where applicable.
+- If a value is unknown from evidence, use `TBD` rather than inventing facts.
+- Keep cell text concise and enterprise-document appropriate.
+- Add a final column `Evidence` with compact `(Source n)` references per row where applicable.
+- Do not wrap the whole table or each line in bold/italic markdown.
+- Do not output anything before or after the table.
 
 **Document type:** {doc_type}
 **Section title:** {section_title}
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
 **Section description:** {section_description}
 **Generation hints:** {generation_hints}
 **Required fields (hints):** {required_fields}
 **Expected length:** {expected_length}
 **Tone:** {tone}
-
 **Evidence:**
 {evidence_context}

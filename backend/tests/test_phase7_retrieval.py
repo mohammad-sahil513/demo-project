@@ -73,7 +73,7 @@ class _FakeSKAdapter:
         assert task == "retrieval_query_generation"
         self.query_prompts.append(prompt)
         if hasattr(cost_tracker, "track_call"):
-            cost_tracker.track_call(model="gpt5mini", task=task, input_tokens=20, output_tokens=8)
+            cost_tracker.track_call(model="gpt-5-mini", task=task, input_tokens=20, output_tokens=8)
         return "security requirements identity access controls policy coverage"
 
     async def generate_embedding_with_usage(self, text: str):

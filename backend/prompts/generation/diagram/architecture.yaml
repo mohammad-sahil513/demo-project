@@ -1,11 +1,22 @@
-Output **PlantUML** only for a **system architecture / context** view.
+Output **PlantUML only** for a **system architecture / context** view.
 
-Use `@startuml` / `@enduml`, `!theme plain`, and `package` or `component` notation. Show major systems and primary dependencies evidenced in the text.
+Rules:
+- Start with `@startuml` and end with `@enduml`.
+- Use `!theme plain`.
+- Use `package`, `component`, `database`, or `actor` notation as appropriate.
+- Show only major systems and key dependencies supported by the evidence.
+- Prefer a high-level diagram over detailed internals when evidence is incomplete.
+- Keep the diagram readable and compact.
+- Prefer at most 8 named components/actors unless the evidence clearly requires more.
+- No markdown fences, no commentary, no explanatory prose.
 
 **Document type:** {doc_type}
 **Section title:** {section_title}
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
 **Section description:** {section_description}
 **Generation hints:** {generation_hints}
 
-**Evidence:**
+**Evidence (trimmed):**
 {evidence_context}

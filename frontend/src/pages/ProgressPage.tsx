@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight, RefreshCw, AlertCircle } from 'lucide-react'
 import { ProgressBar } from '../components/progress/ProgressBar'
@@ -46,7 +46,9 @@ export function ProgressPage() {
     setError,
     setWorkflowDetail,
     documents,
+    workflowDetailByType,
   } = useJobStore()
+  const [showAllWarnings, setShowAllWarnings] = useState(false)
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const statusByDocRef = useRef<Partial<Record<DocType, WorkflowRunStatus>>>({})
@@ -323,6 +325,21 @@ export function ProgressPage() {
   const handleViewOutput = () => navigate('/output')
 
   const docLabels = selectedDocs.length ? selectedDocs : (['PDD', 'SDD', 'UAT'] as DocType[])
+  const warningRows = useMemo(() => selectedDocs.flatMap((doc) => {
+    const warnings = (workflowDetailByType[doc]?.warnings ?? []) as Array<Record<string, unknown>>
+    const runId = workflowRunByType[doc]
+    return warnings.map((w, idx) => ({
+      key: `${doc}-${idx}`,
+      doc,
+      runId,
+      code: String(w.code || 'warning'),
+      message:
+        String(w.message || w.error || '').trim() ||
+        'Validation warning detected.',
+      isBlocking: ['schema_mismatch', 'missing_required_columns'].includes(String(w.code || '').toLowerCase()),
+    }))
+  }), [selectedDocs, workflowDetailByType, workflowRunByType])
+  const visibleWarnings = showAllWarnings ? warningRows : warningRows.slice(0, 6)
 
   return (
     <div className="min-h-[calc(100vh-56px)] bg-white flex flex-col">
@@ -403,6 +420,48 @@ export function ProgressPage() {
                 <p className="font-body text-xs text-ey-muted mt-6 animate-fade-in">
                   {currentStep || 'This may take a few minutes depending on document length.'}
                 </p>
+              )}
+              {warningRows.length > 0 && (
+                <div className="mt-6 border border-amber-200 bg-amber-50 p-4">
+                  <p className="font-body text-xs font-semibold text-amber-800 uppercase tracking-widest mb-2">
+                    Validation warnings
+                  </p>
+                  <p className="font-body text-xs text-amber-800 mb-2">
+                    Showing {visibleWarnings.length} of {warningRows.length} warnings
+                  </p>
+                  <div className="space-y-1">
+                    {visibleWarnings.map((row) => (
+                      <p
+                        key={row.key}
+                        className={`font-body text-xs ${row.isBlocking ? 'text-red-700 font-semibold' : 'text-amber-700'}`}
+                      >
+                        <span className="font-semibold">{row.doc}</span> [{row.code}] {row.message}
+                        {row.runId && (
+                          <>
+                            {' '}
+                            <a
+                              href={`/api/workflow-runs/${row.runId}/diagnostics`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="underline"
+                            >
+                              diagnostics
+                            </a>
+                          </>
+                        )}
+                      </p>
+                    ))}
+                  </div>
+                  {warningRows.length > 6 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllWarnings((v) => !v)}
+                      className="mt-2 font-body text-xs font-semibold underline text-amber-800"
+                    >
+                      {showAllWarnings ? 'Show less' : 'Show all'}
+                    </button>
+                  )}
+                </div>
               )}
 
               {status === 'completed' && (

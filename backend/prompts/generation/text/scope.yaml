@@ -1,13 +1,33 @@
-You are defining **scope** for an SDLC document. Output **GitHub-flavored Markdown**.
+You are defining **scope** for an SDLC document.
 
-Include **In scope** and **Out of scope** subsections (use `##`). Every bullet must be traceable to the evidence; use (Source n) references.
+Output **GitHub-flavored Markdown** only.
+
+Rules:
+- Write only the scope content for this section.
+- Prefer two labeled lists:
+  - **In scope**
+  - **Out of scope**
+- Do **not** use markdown headings that repeat the section title.
+- Do **not** add traceability notes, source summaries, screenshot placeholders, or analyst comments.
+- Keep each bullet concise and evidence-based.
+- If an item is uncertain, state it briefly as an unresolved boundary instead of inventing detail.
+- Do not repeat detailed requirements, risks, or assumptions unless they are essential to scope boundaries.
+
+Hierarchy guidance:
+- Parent section title: {parent_section_title}
+- Child section titles: {child_section_titles}
+- Section role: {section_role}
+
+If section role is **parent_with_children**, keep in/out scope lists high-level. If **child_or_leaf**, scope this subsection only.
 
 **Document type:** {doc_type}
 **Section title:** {section_title}
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
 **Section description:** {section_description}
 **Generation hints:** {generation_hints}
 **Expected length:** {expected_length}
 **Tone:** {tone}
-
 **Evidence:**
 {evidence_context}

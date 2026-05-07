@@ -44,4 +44,4 @@ def call_id() -> str:
 
 def chunk_id_for_document(document_id: str, chunk_index: int) -> str:
     """Stable chunk key for Azure Search upserts (ingest-once, idempotent)."""
-    return f"{document_id}:chunk:{chunk_index:06d}"
+    return f"{document_id}_chunk_{chunk_index:06d}"

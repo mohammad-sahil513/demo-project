@@ -47,6 +47,10 @@ def _get_or_create_worksheet(wb, section_title: str, sheet_map: dict[str, object
     return wb[new_name]
 
 
+def _normalized_header(value: str) -> str:
+    return "".join(ch.lower() for ch in value if ch.isalnum())
+
+
 class XlsxBuilder:
     def build(
         self,
@@ -55,8 +59,9 @@ class XlsxBuilder:
         *,
         template_path: Path | None = None,
         sheet_map: dict[str, object] | None = None,
-    ) -> None:
+    ) -> list[dict[str, object]]:
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        warnings: list[dict[str, object]] = []
         from_template = bool(template_path and template_path.is_file())
         if from_template:
             from openpyxl import load_workbook
@@ -70,17 +75,51 @@ class XlsxBuilder:
             ws = _get_or_create_worksheet(wb, section.title, sheet_map)
             mr = ws.max_row or 0
             mc = ws.max_column or 0
+            schema_headers: list[str] = []
+            schema_required: list[str] = []
+            selected_header_row = 1
+            if isinstance(sheet_map, dict):
+                schema_items = sheet_map.get("schema")
+                if isinstance(schema_items, list):
+                    for item in schema_items:
+                        if not isinstance(item, dict):
+                            continue
+                        if str(item.get("sheet_name") or "").strip().lower() == ws.title.strip().lower():
+                            schema_headers = [str(h).strip() for h in item.get("headers", []) if str(h).strip()]
+                            schema_required = [str(h).strip() for h in item.get("required_columns", []) if str(h).strip()]
+                            meta = item.get("header_detection_metadata")
+                            if isinstance(meta, dict):
+                                try:
+                                    selected_header_row = max(1, int(meta.get("selected_row") or 1))
+                                except (TypeError, ValueError):
+                                    selected_header_row = 1
+                            break
 
             if from_template:
-                header_nonempty = mr >= 1 and any(
-                    ws.cell(row=1, column=c).value not in (None, "")
+                header_nonempty = mr >= selected_header_row and any(
+                    ws.cell(row=selected_header_row, column=c).value not in (None, "")
                     for c in range(1, mc + 1)
                 )
-                if mr > 1:
-                    ws.delete_rows(2, mr - 1)
-                elif mr == 1 and not header_nonempty:
-                    ws.delete_rows(1, 1)
-                start_row = 2 if header_nonempty else 1
+                if not header_nonempty and selected_header_row != 1:
+                    header_nonempty = mr >= 1 and any(
+                        ws.cell(row=1, column=c).value not in (None, "")
+                        for c in range(1, mc + 1)
+                    )
+                    selected_header_row = 1
+                    warnings.append(
+                        {
+                            "code": "schema_mismatch",
+                            "severity": "error",
+                            "section_id": section.section_id,
+                            "sheet": ws.title,
+                            "message": "Selected header row was empty; fell back to row 1.",
+                        }
+                    )
+                if mr > selected_header_row:
+                    ws.delete_rows(selected_header_row + 1, mr - selected_header_row)
+                elif mr == selected_header_row and not header_nonempty:
+                    ws.delete_rows(selected_header_row, 1)
+                start_row = selected_header_row + 1 if header_nonempty else selected_header_row
             else:
                 if mr > 0:
                     ws.delete_rows(1, mr)
@@ -91,6 +130,57 @@ class XlsxBuilder:
                 for kind, payload in split_markdown_blocks(section.content):
                     if kind == "table":
                         rows.extend(parse_gfm_table(payload))
+                if rows:
+                    generated_headers = [str(v).strip() for v in rows[0]]
+                    data_rows = rows[1:] if len(rows) > 1 else []
+                    if schema_headers:
+                        schema_idx = {_normalized_header(h): idx for idx, h in enumerate(schema_headers)}
+                        gen_idx = {_normalized_header(h): idx for idx, h in enumerate(generated_headers)}
+                        unmapped_generated = [h for h in generated_headers if _normalized_header(h) not in schema_idx]
+                        missing_required = [
+                            h for h in (schema_required or schema_headers) if _normalized_header(h) not in gen_idx
+                        ]
+                        if unmapped_generated:
+                            warnings.append(
+                                {
+                                    "code": "unmapped_generated_columns",
+                                    "severity": "warning",
+                                    "section_id": section.section_id,
+                                    "sheet": ws.title,
+                                    "columns": unmapped_generated,
+                                }
+                            )
+                        if missing_required:
+                            warnings.append(
+                                {
+                                    "code": "missing_required_columns",
+                                    "severity": "error",
+                                    "section_id": section.section_id,
+                                    "sheet": ws.title,
+                                    "columns": missing_required,
+                                }
+                            )
+
+                        mapped_rows: list[list[str]] = []
+                        mapped_rows.append(list(schema_headers))
+                        for row in data_rows:
+                            new_row = ["TBD"] * len(schema_headers)
+                            for sh, s_idx in schema_idx.items():
+                                if sh in gen_idx and gen_idx[sh] < len(row):
+                                    value = str(row[gen_idx[sh]])
+                                    new_row[s_idx] = value if value else "TBD"
+                            mapped_rows.append(new_row)
+                        rows = mapped_rows
+                    elif from_template and generated_headers:
+                        warnings.append(
+                            {
+                                "code": "schema_mismatch",
+                                "severity": "error",
+                                "section_id": section.section_id,
+                                "sheet": ws.title,
+                                "message": "Generated table headers could not be validated against template schema.",
+                            }
+                        )
             if not rows and section.content.strip():
                 rows = [[section.content.strip()]]
 
@@ -105,3 +195,4 @@ class XlsxBuilder:
                         )
 
         wb.save(str(output_path))
+        return warnings

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import re
+import logging
+import pytest
 
 from core.config import ensure_storage_dirs, settings
 from core.constants import inbuilt_template_id_for
 from core.ids import document_id, output_id, template_id, utc_now_iso, workflow_id
+from core.logging import _PhaseOnlyConsoleFilter, configure_logging
 from repositories.document_models import DocumentRecord
 from repositories.document_repo import DocumentRepository
 from repositories.output_models import OutputRecord
@@ -13,6 +16,7 @@ from repositories.template_models import TemplateRecord
 from repositories.template_repo import TemplateRepository
 from repositories.workflow_models import WorkflowRecord
 from repositories.workflow_repo import WorkflowRepository
+from services.document_service import DocumentService
 
 
 def test_id_generation_and_inbuilt_template_mapping() -> None:
@@ -91,3 +95,113 @@ def test_repository_crud_cycle_local(tmp_path) -> None:
     )
     outputs.save(out)
     assert outputs.get("out-test") is not None
+
+
+def test_configure_logging_uses_console_level(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "log_level", "INFO")
+    monkeypatch.setattr(settings, "log_console_level", "ERROR")
+    configure_logging()
+    root = logging.getLogger()
+    assert root.handlers
+    assert root.handlers[0].level == logging.ERROR
+
+
+def test_phase_only_console_filter_allows_phase_logs_only() -> None:
+    f = _PhaseOnlyConsoleFilter()
+    allowed = logging.LogRecord(
+        name="services.workflow_executor",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="phase.started workflow_run_id=wf-1 phase=INGESTION",
+        args=(),
+        exc_info=None,
+    )
+    blocked = logging.LogRecord(
+        name="api.routes.documents",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="documents.upload.completed document_id=doc-1",
+        args=(),
+        exc_info=None,
+    )
+    blocked_attempt = logging.LogRecord(
+        name="services.workflow_executor",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="phase.attempt workflow_run_id=wf-1 phase=INGESTION attempt=1",
+        args=(),
+        exc_info=None,
+    )
+    allowed_failure = logging.LogRecord(
+        name="services.workflow_executor",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=1,
+        msg="workflow.failed workflow_run_id=wf-1 error=boom",
+        args=(),
+        exc_info=None,
+    )
+    assert f.filter(allowed) is True
+    assert f.filter(blocked) is False
+    assert f.filter(blocked_attempt) is False
+    assert f.filter(allowed_failure) is True
+
+
+def test_document_cost_summary_defaults_completed_and_includes_all_status(tmp_path) -> None:
+    now = utc_now_iso()
+    documents = DocumentRepository(tmp_path / "documents")
+    workflows = WorkflowRepository(tmp_path / "workflows")
+    service = DocumentService(documents, workflow_repo=workflows)
+    documents.save(
+        DocumentRecord(
+            document_id="doc-cost",
+            filename="sample.pdf",
+            content_type="application/pdf",
+            size_bytes=10,
+            file_path="doc-cost.bin",
+            created_at=now,
+            updated_at=now,
+        ),
+    )
+    workflows.save(
+        WorkflowRecord(
+            workflow_run_id="wf-ok",
+            document_id="doc-cost",
+            template_id="tpl-inbuilt-pdd",
+            doc_type="PDD",
+            status="COMPLETED",
+            observability_summary={
+                "llm_cost_usd": 1.0,
+                "embedding_cost_usd": 2.0,
+                "document_intelligence_cost_usd": 3.0,
+            },
+            created_at=now,
+            updated_at=now,
+        ),
+    )
+    workflows.save(
+        WorkflowRecord(
+            workflow_run_id="wf-fail",
+            document_id="doc-cost",
+            template_id="tpl-inbuilt-pdd",
+            doc_type="PDD",
+            status="FAILED",
+            observability_summary={
+                "llm_cost_usd": 10.0,
+                "embedding_cost_usd": 20.0,
+                "document_intelligence_cost_usd": 30.0,
+            },
+            created_at=now,
+            updated_at=now,
+        ),
+    )
+    data = service.cost_summary("doc-cost")
+    assert data["workflow_count"] == 2
+    assert data["completed_workflow_count"] == 1
+    assert data["total_cost_usd"] == 6.0
+    all_status = data["all_status_totals"]
+    assert isinstance(all_status, dict)
+    assert all_status["total_cost_usd"] == 66.0

@@ -1,0 +1,22 @@
+You are generating a **UAT test case table**.
+
+Output exactly one GitHub-flavored markdown table with these columns in order:
+{table_headers}
+
+Rules:
+- Include one header row and one separator row.
+- Add practical, executable test cases aligned to business workflows.
+- Keep steps concise and verifiable.
+- For unknown values, use `TBD`.
+- Include `Evidence` references per row when available.
+- Return only the table.
+
+**Document type:** {doc_type}
+**Section title:** {section_title}
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
+**Section description:** {section_description}
+**Required fields:** {required_fields}
+**Evidence:**
+{evidence_context}

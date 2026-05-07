@@ -2,10 +2,39 @@ import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { CitationDto } from '../../api/types'
 
-function formatLine(c: CitationDto): string {
+const CHUNK_ID_MAX = 36
+
+function truncateChunkId(id: string): string {
+  const t = id.trim()
+  if (!t) return ''
+  if (t.length <= CHUNK_ID_MAX) return t
+  return `${t.slice(0, CHUNK_ID_MAX)}…`
+}
+
+function CitationRow({ c }: { c: CitationDto }) {
   const page = c.page == null ? '?' : String(c.page)
   const kind = c.content_type ?? 'text'
-  return `${c.path}, p.${page} [${kind}]`
+  const section = c.path?.trim() || '—'
+  const idLine = truncateChunkId(c.chunk_id)
+
+  return (
+    <div
+      className="font-body text-[11px] leading-snug text-ey-ink border-b border-ey-border/60 pb-3 last:border-0 last:pb-0 space-y-1"
+    >
+      <div className="grid grid-cols-[1fr_auto_auto] gap-x-2 gap-y-0.5 items-start">
+        <span className="text-ey-ink-strong min-w-0 break-words" title={section}>
+          {section}
+        </span>
+        <span className="text-ey-muted shrink-0 tabular-nums">p.{page}</span>
+        <span className="text-ey-muted shrink-0 uppercase text-[10px] tracking-wide">{kind}</span>
+      </div>
+      {idLine ? (
+        <p className="text-[10px] text-ey-muted/90 font-mono truncate" title={c.chunk_id}>
+          id: {idLine}
+        </p>
+      ) : null}
+    </div>
+  )
 }
 
 export function CitationPanel({ citations }: { citations: CitationDto[] }) {
@@ -34,14 +63,20 @@ export function CitationPanel({ citations }: { citations: CitationDto[] }) {
           {citations.length === 0 ? (
             <p className="font-body text-xs text-ey-muted">No citations for this section.</p>
           ) : (
-            citations.map((c) => (
-              <p
-                key={c.chunk_id}
-                className="font-body text-[11px] leading-snug text-ey-ink border-b border-ey-border/60 pb-3 last:border-0 last:pb-0"
-              >
-                {formatLine(c)}
+            <>
+              <p className="font-body text-[9px] tracking-widest uppercase text-ey-muted font-semibold">
+                Section / Page / Type
               </p>
-            ))
+              <p className="font-body text-[10px] text-ey-muted leading-tight -mt-1">
+                Section is the source chunk heading from retrieval, not a file path.
+              </p>
+              {citations.map((c, index) => (
+                <CitationRow
+                  key={`${c.chunk_id || 'no-id'}-${index}`}
+                  c={c}
+                />
+              ))}
+            </>
           )}
         </div>
       )}

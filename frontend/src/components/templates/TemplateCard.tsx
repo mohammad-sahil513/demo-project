@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Eye, Trash2, ChevronRight, AlertCircle } from 'lucide-react'
+import { Eye, Trash2, ChevronRight, AlertCircle, Loader2 } from 'lucide-react'
 import { Template } from '../../store/useJobStore'
 import { templateApi } from '../../api/templateApi'
 import { TemplatePreviewModal } from './TemplatePreviewModal'
+import { TemplateFidelityBadge } from './TemplateFidelityBadge'
 
 interface Props {
   template: Template
@@ -13,6 +14,8 @@ export function TemplateCard({ template, onDeleted }: Props) {
   const [showPreview, setShowPreview] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const isReady = template.status === 'READY'
+  const isProcessing = template.status === 'COMPILING' || template.status === 'PENDING'
 
   const handleDelete = async () => {
     setDeleting(true)
@@ -43,6 +46,13 @@ export function TemplateCard({ template, onDeleted }: Props) {
                 >
                   {template.is_custom ? 'Custom' : 'Standard'}
                 </span>
+                <TemplateFidelityBadge validationStatus={template.validation_status} />
+                {isProcessing && (
+                  <span className="inline-flex items-center gap-1 font-body text-[9px] font-semibold tracking-widest uppercase px-2 py-0.5 bg-amber-100 text-amber-700">
+                    <Loader2 size={9} className="animate-spin" />
+                    Processing
+                  </span>
+                )}
               </div>
               <h4 className="font-display font-bold text-lg uppercase tracking-wide text-ey-ink-strong leading-tight truncate">
                 {template.filename}
@@ -55,6 +65,25 @@ export function TemplateCard({ template, onDeleted }: Props) {
             <p className="font-body text-xs text-ey-muted mb-4 leading-relaxed line-clamp-2">
               {template.description}
             </p>
+          )}
+
+          {template.status === 'FAILED' && (
+            <div className="mb-4 border border-red-200 bg-red-50 px-3 py-2">
+              <p className="font-body text-[11px] text-red-700 font-medium">Template compile failed</p>
+              <p className="font-body text-[11px] text-red-600 mt-1">
+                {template.compile_error || 'Compilation failed. Re-upload a corrected template.'}
+              </p>
+            </div>
+          )}
+          {isProcessing && (
+            <div className="mb-4 border border-amber-200 bg-amber-50 px-3 py-2">
+              <p className="font-body text-[11px] text-amber-700 font-medium">
+                Template is compiling
+              </p>
+              <p className="font-body text-[11px] text-amber-700 mt-1">
+                Preview will be available automatically after compilation completes.
+              </p>
+            </div>
           )}
 
           {template.sections_preview?.length > 0 && (
@@ -101,11 +130,16 @@ export function TemplateCard({ template, onDeleted }: Props) {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => setShowPreview(true)}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-ey-ink-strong text-white font-body text-xs font-medium hover:bg-ey-ink transition-colors group focus:outline-none focus-visible:ring-2 focus-visible:ring-ey-primary focus-visible:ring-offset-2"
+                onClick={() => isReady && setShowPreview(true)}
+                disabled={!isReady}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 font-body text-xs font-medium transition-colors group focus:outline-none focus-visible:ring-2 focus-visible:ring-ey-primary focus-visible:ring-offset-2 ${
+                  isReady
+                    ? 'bg-ey-ink-strong text-white hover:bg-ey-ink'
+                    : 'bg-ey-canvas text-ey-muted cursor-not-allowed'
+                }`}
               >
-                <Eye size={13} className="group-hover:scale-110 transition-transform text-ey-primary" />
-                Preview
+                <Eye size={13} className={isReady ? 'group-hover:scale-110 transition-transform text-ey-primary' : ''} />
+                {isReady ? 'Preview' : isProcessing ? 'Processing…' : 'Preview unavailable'}
               </button>
               {template.is_custom && (
                 <button

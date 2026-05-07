@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_debug: bool = True
     log_level: str = "INFO"
+    # Console handler level; use WARNING in noisy environments while keeping file logs detailed.
+    log_console_level: str = "WARNING"
+    # When True, CLI shows only workflow phase/run progression logs.
+    log_console_phase_only: bool = True
+    # Startup cleanup for observability logs under storage/logs.
+    log_cleanup_enabled: bool = True
+    log_retention_days: int = 14
     logs_verbose: bool = False
     storage_root: Path = Field(default=Path("storage"))
 
@@ -44,6 +51,29 @@ class Settings(BaseSettings):
     azure_search_endpoint: str = ""
     retrieval_top_k: int = 5
     chunker_token_mode: str = "tiktoken"
+    header_detection_mode: str = "strict_row1"
+    header_scan_max_rows: int = 5
+    template_fidelity_strict_enabled: bool = False
+    template_fidelity_preview_v2_enabled: bool = False
+    # When True, DOCX preview is produced via the same fill path as export (sample content), not a raw copy.
+    template_preview_sample_fill_enabled: bool = True
+    template_schema_validation_blocking: bool = False
+    template_fidelity_media_integrity_blocking: bool = False
+    # Placeholder-native DOCX: OOXML-only fills at schema locations (no heading-range deletion).
+    template_docx_placeholder_native_enabled: bool = False
+    # When True, compile fails if any section in plan has no placeholder binding.
+    template_section_binding_strict: bool = False
+    # Optional: scrub example/description prose and trim tables on compile (DOCX).
+    template_upload_normalize_enabled: bool = False
+    # When False, pure heading-based DocxFiller export is blocked (set False in staging/prod for fidelity).
+    template_docx_legacy_export_allowed: bool = True
+    # When True, custom DOCX export must use placeholder-native path (flag + bindings + schema).
+    template_docx_require_native_for_custom: bool = False
+    # Post-export: normalize document.xml so page 1 is title, page 2 is TOC, then body (all DOCX paths).
+    template_docx_structure_fixer_enabled: bool = True
+    # Compile: LLM section classification timeout and retries (asyncio.wait_for per attempt).
+    template_classifier_timeout_seconds: float = 120.0
+    template_classifier_max_retries: int = 2
 
     azure_document_intelligence_key: str = ""
     azure_document_intelligence_endpoint: str = ""
@@ -95,6 +125,15 @@ class Settings(BaseSettings):
     def cors_allow_credentials(self) -> bool:
         """Wildcard origin is incompatible with credentialed cross-origin requests."""
         return self.cors_origin_list() != ["*"]
+
+    def app_env_normalized(self) -> str:
+        return str(self.app_env or "").strip().lower()
+
+    def is_local_env(self) -> bool:
+        return self.app_env_normalized() in {"local", "development", "dev"}
+
+    def is_strict_env(self) -> bool:
+        return self.app_env_normalized() in {"staging", "production"}
 
 
 settings = Settings()

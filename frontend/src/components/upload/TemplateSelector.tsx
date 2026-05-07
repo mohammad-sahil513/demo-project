@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { ChevronRight, Check, Eye } from 'lucide-react'
+import { ChevronRight, Check, Eye, Loader2 } from 'lucide-react'
 import { templateApi } from '../../api/templateApi'
 import { useJobStore, type DocType, type Template } from '../../store/useJobStore'
 import { TemplatePreviewModal } from '../templates/TemplatePreviewModal'
@@ -104,14 +104,16 @@ export function TemplateSelector() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {forType.map((tpl) => {
                 const selected = selectedId === tpl.id
+                const isReady = tpl.status === 'READY'
+                const isProcessing = tpl.status === 'COMPILING' || tpl.status === 'PENDING'
                 return (
                   <div
                     key={tpl.id}
-                    onClick={() => setSelectedTemplateForType(docType, tpl.id)}
+                    onClick={() => isReady && setSelectedTemplateForType(docType, tpl.id)}
                     role="button"
-                    tabIndex={0}
+                    tabIndex={isReady ? 0 : -1}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
+                      if (isReady && (e.key === 'Enter' || e.key === ' ')) {
                         e.preventDefault()
                         setSelectedTemplateForType(docType, tpl.id)
                       }
@@ -119,7 +121,9 @@ export function TemplateSelector() {
                     className={`p-5 border-2 text-left transition-all relative group focus:outline-none focus-visible:ring-2 focus-visible:ring-ey-primary focus-visible:ring-offset-2 ${
                       selected
                         ? 'border-ey-ink-strong bg-ey-ink-strong text-white'
-                        : 'border-ey-border bg-white hover:border-ey-ink-strong'
+                        : isReady
+                          ? 'border-ey-border bg-white hover:border-ey-ink-strong'
+                          : 'border-ey-border bg-ey-surface/60 opacity-90'
                     }`}
                   >
                     {selected && (
@@ -140,6 +144,14 @@ export function TemplateSelector() {
                     >
                       {tpl.is_custom ? 'Custom' : 'Standard'}
                     </div>
+                    {isProcessing && (
+                      <div className={`inline-flex items-center gap-1 px-2 py-0.5 mb-2 text-[10px] font-body font-semibold tracking-widest uppercase ${
+                        selected ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        <Loader2 size={10} className="animate-spin" />
+                        Processing
+                      </div>
+                    )}
                     <p
                       className={`font-display font-bold text-lg tracking-wide uppercase mb-1 truncate ${
                         selected ? 'text-ey-primary' : 'text-ey-ink-strong'
@@ -176,14 +188,19 @@ export function TemplateSelector() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation()
-                          setPreviewTemplate(tpl)
+                          if (isReady) setPreviewTemplate(tpl)
                         }}
+                        disabled={!isReady}
                         className={`inline-flex items-center gap-1.5 font-body text-[11px] underline ${
-                          selected ? 'text-white/80 hover:text-white' : 'text-ey-muted hover:text-ey-ink-strong'
+                          !isReady
+                            ? 'text-ey-muted/60 no-underline cursor-not-allowed'
+                            : selected
+                              ? 'text-white/80 hover:text-white'
+                              : 'text-ey-muted hover:text-ey-ink-strong'
                         }`}
                       >
                         <Eye size={12} />
-                        Preview
+                        {isReady ? 'Preview' : 'Processing…'}
                       </button>
                     </div>
                   </div>

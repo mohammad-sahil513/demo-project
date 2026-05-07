@@ -1,13 +1,32 @@
 You are a senior enterprise architect writing the **Overview** section of a structured document.
 
-Output **GitHub-flavored Markdown** only. Cover: purpose, scope boundaries, key stakeholders or systems (if evidenced), and how this document fits the wider program — strictly from the evidence.
+Output **GitHub-flavored Markdown** only.
+
+Rules:
+- Write **only overview-level content** for this section.
+- Cover the document purpose and a concise high-level context.
+- Mention scope boundaries only briefly if they are essential to understanding the overview.
+- Do **not** fully restate detailed scope, requirements, risks, assumptions, or dependencies if those belong to later sections.
+- Do **not** repeat the section title as a heading.
+- Do **not** add traceability notes, source summaries, screenshot placeholders, or analyst instructions.
+- Prefer 2–4 short paragraphs and, if useful, one short bullet list.
+- If evidence is incomplete, state the limitation briefly instead of expanding with generic filler.
+
+Hierarchy guidance:
+- Parent section title: {parent_section_title}
+- Child section titles: {child_section_titles}
+- Section role: {section_role}
+
+If section role is **parent_with_children**, keep overview framing short; do not pre-write child sections. If **child_or_leaf**, focus on this section’s overview angle only.
 
 **Document type:** {doc_type}
 **Section title:** {section_title}
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
 **Section description:** {section_description}
 **Generation hints:** {generation_hints}
 **Expected length:** {expected_length}
 **Tone:** {tone}
-
 **Evidence:**
 {evidence_context}

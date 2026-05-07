@@ -65,3 +65,58 @@ class DocumentService:
         else:
             logger.warning("document.binary.missing document_id=%s file_path=%s", document_id, str(file_path))
         return self._repo.delete(document_id)
+
+    def cost_summary(self, document_id: str) -> dict[str, object]:
+        if self._workflow_repo is None:
+            return {
+                "document_id": document_id,
+                "workflow_count": 0,
+                "completed_workflow_count": 0,
+                "total_cost_usd": 0.0,
+                "llm_cost_usd": 0.0,
+                "embedding_cost_usd": 0.0,
+                "document_intelligence_cost_usd": 0.0,
+                "all_status_totals": {
+                    "total_cost_usd": 0.0,
+                    "llm_cost_usd": 0.0,
+                    "embedding_cost_usd": 0.0,
+                    "document_intelligence_cost_usd": 0.0,
+                },
+            }
+        workflows = self._workflow_repo.list_by_document(document_id)
+        completed_llm_cost = 0.0
+        completed_embedding_cost = 0.0
+        completed_docint_cost = 0.0
+        all_llm_cost = 0.0
+        all_embedding_cost = 0.0
+        all_docint_cost = 0.0
+        completed = 0
+        for wf in workflows:
+            summary = dict(getattr(wf, "observability_summary", None) or {})
+            llm = float(summary.get("llm_cost_usd", 0.0) or 0.0)
+            emb = float(summary.get("embedding_cost_usd", 0.0) or 0.0)
+            doc = float(summary.get("document_intelligence_cost_usd", 0.0) or 0.0)
+            all_llm_cost += llm
+            all_embedding_cost += emb
+            all_docint_cost += doc
+            if wf.status == WorkflowStatus.COMPLETED:
+                completed += 1
+                completed_llm_cost += llm
+                completed_embedding_cost += emb
+                completed_docint_cost += doc
+        total = completed_llm_cost + completed_embedding_cost + completed_docint_cost
+        return {
+            "document_id": document_id,
+            "workflow_count": len(workflows),
+            "completed_workflow_count": completed,
+            "total_cost_usd": total,
+            "llm_cost_usd": completed_llm_cost,
+            "embedding_cost_usd": completed_embedding_cost,
+            "document_intelligence_cost_usd": completed_docint_cost,
+            "all_status_totals": {
+                "total_cost_usd": all_llm_cost + all_embedding_cost + all_docint_cost,
+                "llm_cost_usd": all_llm_cost,
+                "embedding_cost_usd": all_embedding_cost,
+                "document_intelligence_cost_usd": all_docint_cost,
+            },
+        }

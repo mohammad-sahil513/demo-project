@@ -1,13 +1,31 @@
-You are documenting **assumptions and dependencies**. Output **GitHub-flavored Markdown**.
+You are documenting assumptions or dependencies only when this section explicitly requires them.
 
-Use `## Assumptions` and `## Dependencies` (or similar). Each item must be justified by the evidence or explicitly labeled as a low-confidence inference.
+Output **GitHub-flavored Markdown** only.
+
+Rules:
+- Write only the assumptions/dependencies content relevant to this section.
+- Do **not** repeat the section title as a heading.
+- Do **not** add generic assumptions just to fill space.
+- Include only assumptions or dependencies that are directly supported by evidence or clearly framed as unresolved constraints.
+- Do not expand into broader risks, requirements, or solution design unless this section explicitly requires it.
+- Do **not** add traceability notes, source summaries, screenshot placeholders, or analyst comments.
+- Prefer concise bullets over nested markdown heading structures.
+
+Hierarchy guidance:
+- Parent section title: {parent_section_title}
+- Child section titles: {child_section_titles}
+- Section role: {section_role}
+
+If section role is **parent_with_children**, keep this section high-level. If **child_or_leaf**, focus only on this section.
 
 **Document type:** {doc_type}
 **Section title:** {section_title}
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
 **Section description:** {section_description}
 **Generation hints:** {generation_hints}
 **Expected length:** {expected_length}
 **Tone:** {tone}
-
 **Evidence:**
 {evidence_context}

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -17,6 +19,12 @@ class AssembledSection(BaseModel):
     content: str = ""
     diagram_path: str | None = None
 
+    # Forward-compatible container for future semantic blocks
+    content_blocks: list[dict[str, Any]] = Field(default_factory=list)
+
+    # Per-section export mode (kept for compatibility; document-level mode is primary)
+    export_mode: str = "final"
+
 
 class AssembledDocument(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -24,3 +32,6 @@ class AssembledDocument(BaseModel):
     title: str
     doc_type: str
     sections: list[AssembledSection] = Field(default_factory=list)
+
+    # NEW: document-wide export mode
+    export_mode: str = "final"

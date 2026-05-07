@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from html import escape
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -17,10 +18,14 @@ class TemplatePreviewGenerator:
         title: str,
         section_plan: list[SectionDefinition],
     ) -> Path:
-        lines = [f"Template Preview: {title}"]
+        lines = [f"Template Preview: {title}", ""]
+
         for section in section_plan:
-            lines.append(f"{section.execution_order}. {section.title}")
-            lines.append("Generated content placeholder.")
+            indent = "  " * max(0, section.level - 1)
+            lines.append(f"{indent}{section.execution_order}. {section.title}")
+            lines.append(f"{indent}Generated content placeholder.")
+            lines.append("")
+
         destination.parent.mkdir(parents=True, exist_ok=True)
         self._write_minimal_docx(destination, lines)
         return destination
@@ -28,7 +33,11 @@ class TemplatePreviewGenerator:
     def build_preview_html_from_xlsx(self, skeleton: DocumentSkeleton) -> str:
         if not skeleton.headings:
             raise TemplateException("Cannot build XLSX preview without sheet headings.")
-        rows = "".join(f"<tr><td>{index + 1}</td><td>{name}</td></tr>" for index, name in enumerate(skeleton.headings))
+
+        rows = "".join(
+            f"<tr><td>{index + 1}</td><td>{escape(name)}</td></tr>"
+            for index, name in enumerate(skeleton.headings)
+        )
         return (
             "<div><h3>Template Preview</h3>"
             "<table><thead><tr><th>#</th><th>Sheet</th></tr></thead>"
@@ -63,6 +72,7 @@ class TemplatePreviewGenerator:
             'Target="word/document.xml"/>'
             "</Relationships>"
         )
+
         with ZipFile(destination, "w") as archive:
             archive.writestr("[Content_Types].xml", content_types)
             archive.writestr("_rels/.rels", rels)

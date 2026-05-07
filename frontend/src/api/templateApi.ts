@@ -1,5 +1,11 @@
 import client from './client'
-import type { TemplateDto, TemplateListData } from './types'
+import type {
+  TemplateDto,
+  TemplateListData,
+  TemplatePreviewHtmlData,
+  TemplateSchemaData,
+  TemplateValidationData,
+} from './types'
 import type { Template } from '../store/useJobStore'
 
 function dtoToTemplate(d: TemplateDto): Template {
@@ -18,6 +24,14 @@ function dtoToTemplate(d: TemplateDto): Template {
     description: d.filename,
     sections_preview: [],
     is_custom: isCustom,
+    compile_error: d.compile_error ?? null,
+    schema_version: d.schema_version ?? null,
+    validation_status: d.validation_status ?? null,
+    placeholder_schema: d.placeholder_schema ?? {},
+    validation_errors: d.validation_errors ?? [],
+    validation_warnings: d.validation_warnings ?? [],
+    section_placeholder_bindings: d.section_placeholder_bindings ?? {},
+    resolved_section_bindings: d.resolved_section_bindings ?? {},
   }
 }
 
@@ -55,6 +69,13 @@ export const templateApi = {
     return res.data
   },
 
+  getTemplatePreviewBinary: async (templateId: string): Promise<ArrayBuffer> => {
+    const res = await client.get<ArrayBuffer>(`/templates/${templateId}/preview-binary`, {
+      responseType: 'arraybuffer',
+    })
+    return res.data
+  },
+
   getTemplatePreview: async (templateId: string): Promise<TemplatePreview> => {
     const raw = await templateApi.getTemplateRaw(templateId)
     return {
@@ -63,6 +84,21 @@ export const templateApi = {
       description: raw.filename,
       sections_preview: [],
     }
+  },
+
+  getTemplatePreviewHtml: async (templateId: string): Promise<TemplatePreviewHtmlData> => {
+    const res = await client.get<TemplatePreviewHtmlData>(`/templates/${templateId}/preview-html`)
+    return res.data
+  },
+
+  getTemplateSchema: async (templateId: string): Promise<TemplateSchemaData> => {
+    const res = await client.get<TemplateSchemaData>(`/templates/${templateId}/schema`)
+    return res.data
+  },
+
+  validateTemplate: async (templateId: string): Promise<TemplateValidationData> => {
+    const res = await client.post<TemplateValidationData>(`/templates/${templateId}/validate`)
+    return res.data
   },
 
   uploadTemplate: async (payload: TemplateUploadPayload) => {
@@ -78,6 +114,12 @@ export const templateApi = {
 
   deleteTemplate: async (templateId: string) => {
     const res = await client.delete(`/templates/${templateId}`)
+    return res.data
+  },
+
+  /** Replace explicit section_id → placeholder_id map (JSON body). */
+  updateSectionBindings: async (templateId: string, bindings: Record<string, string | string[]>) => {
+    const res = await client.patch<TemplateDto>(`/templates/${templateId}/bindings`, bindings)
     return res.data
   },
 }

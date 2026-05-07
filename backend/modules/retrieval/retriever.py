@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
+from time import perf_counter
+
 
 from core.config import settings
 from core.constants import MODEL_PRICING
@@ -12,7 +15,7 @@ from modules.template.models import SectionDefinition
 from modules.observability.cost_rollup import merge_full_cost_summary
 
 MIN_DIRECT_QUERY_WORDS = 4
-
+logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class RetrievedChunk:
@@ -48,8 +51,11 @@ class SectionRetriever:
         document_id: str,
         cost_tracker: object | None = None,
     ) -> tuple[list[RetrievedChunk], float]:
+        started_at = perf_counter()
+
         query_text = await self._resolve_query(section, cost_tracker=cost_tracker)
         embedding_result = await self._sk_adapter.generate_embedding_with_usage(query_text)
+
         raw = await self._search_client.hybrid_search(
             search_text=query_text,
             embedding=embedding_result.embedding,
@@ -74,6 +80,20 @@ class SectionRetriever:
                     score=float(item.get("@search.score") or item.get("score") or 0.0),
                 ),
             )
+
+        duration_ms = int((perf_counter() - started_at) * 1000)
+        logger.info(
+            "retrieval.section.metrics section_id=%s document_id=%s top_k=%s query_word_count=%s "
+            "chunk_count=%s embedding_cost_usd=%s duration_ms=%s",
+            section.section_id,
+            document_id,
+            self._top_k,
+            len(query_text.split()),
+            len(chunks),
+            embedding_cost_usd,
+            duration_ms,
+        )
+
         return chunks, embedding_cost_usd
 
     async def _resolve_query(

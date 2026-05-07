@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 from docx import Document
 
@@ -12,7 +14,10 @@ from modules.assembly.models import AssembledDocument
 from modules.export.markdown_tables import parse_gfm_table, split_markdown_blocks
 from modules.export.renderer import ExportRenderer
 from modules.export.types import ExportDocumentInfo, ExportTemplateInfo
+from modules.export.xlsx_builder import XlsxBuilder
 from modules.template.models import SectionDefinition, StyleMap
+from core.exceptions import WorkflowException
+from services.workflow_executor import WorkflowExecutor
 
 
 def test_parse_gfm_table_separator_uses_raw_line() -> None:
@@ -106,7 +111,7 @@ def test_export_renderer_docx_inbuilt(tmp_path: Path) -> None:
         assembled=assembled,
         style_map=style,
     )
-    assert warns == []
+    assert all(str(w.get("code", "")).startswith("docx_structure") for w in warns)
     assert out.suffix == ".docx"
     assert name.endswith(".docx")
     assert out.exists() and out.stat().st_size > 2000
@@ -148,6 +153,211 @@ def test_export_renderer_uat_xlsx(tmp_path: Path) -> None:
     assert out.suffix == ".xlsx"
     assert "UAT" in name
     assert out.exists() and out.stat().st_size > 500
+
+
+def test_xlsx_builder_emits_schema_warnings(tmp_path: Path) -> None:
+    from modules.assembly.models import AssembledSection
+
+    assembled = AssembledDocument(
+        title="UAT",
+        doc_type=DocType.UAT.value,
+        sections=[
+            AssembledSection(
+                section_id="u1",
+                title="Test Cases",
+                level=1,
+                output_type="table",
+                content="| Scenario | Steps |\n| --- | --- |\n| Login | Do login |\n",
+            ),
+        ],
+    )
+    out = tmp_path / "warn.xlsx"
+    builder = XlsxBuilder()
+    warnings = builder.build(
+        assembled,
+        out,
+        sheet_map={
+            "schema": [
+                {
+                    "sheet_name": "Test Cases",
+                    "headers": ["ID", "Scenario", "Steps", "Expected Result"],
+                    "required_columns": ["ID", "Scenario", "Steps", "Expected Result"],
+                }
+            ]
+        },
+    )
+    codes = {w.get("code") for w in warnings}
+    assert "missing_required_columns" in codes
+
+
+def test_render_export_blocks_before_output_persistence(tmp_path: Path) -> None:
+    out_file = tmp_path / "blocked.xlsx"
+    out_file.write_text("temp", encoding="utf-8")
+
+    assembled = AssembledDocument(
+        title="UAT",
+        doc_type=DocType.UAT.value,
+        sections=[
+            {
+                "section_id": "s1",
+                "title": "Test Cases",
+                "level": 1,
+                "output_type": "table",
+                "content": "| A |\n| --- |\n| x |\n",
+            }
+        ],
+    )
+
+    class _WorkflowServiceStub:
+        def __init__(self) -> None:
+            self.updated = []
+            self.wf = SimpleNamespace(
+                workflow_run_id="wf-1",
+                assembled_document=assembled.model_dump(),
+                style_map={},
+                warnings=[],
+                sheet_map={},
+                template_id="tpl-1",
+                document_id="doc-1",
+                doc_type=DocType.UAT.value,
+            )
+
+        def get_or_raise(self, _: str):
+            return self.wf
+
+        def get_template(self, _: str):
+            return SimpleNamespace(
+                template_id="tpl-1",
+                template_source=TemplateSource.INBUILT,
+                file_path=None,
+                placeholder_schema=None,
+                resolved_section_bindings=None,
+            )
+
+        def get_document(self, _: str):
+            return SimpleNamespace(document_id="doc-1", filename="doc.pdf")
+
+        def update(self, workflow_run_id: str, **kwargs):
+            self.updated.append((workflow_run_id, kwargs))
+
+    class _OutputServiceStub:
+        def __init__(self) -> None:
+            self.create_calls = 0
+
+        def create(self, **kwargs):
+            self.create_calls += 1
+            return SimpleNamespace(output_id="out-1", **kwargs)
+
+    class _RendererStub:
+        def render(self, **kwargs):
+            return out_file, "blocked.xlsx", [{"code": "missing_required_columns", "severity": "error"}]
+
+    class _EventServiceStub:
+        async def emit(self, *_args, **_kwargs):
+            return None
+
+    workflow_service = _WorkflowServiceStub()
+    output_service = _OutputServiceStub()
+    executor = WorkflowExecutor(
+        workflow_service=workflow_service,  # type: ignore[arg-type]
+        event_service=_EventServiceStub(),  # type: ignore[arg-type]
+        output_service=output_service,  # type: ignore[arg-type]
+        export_renderer=_RendererStub(),  # type: ignore[arg-type]
+    )
+
+    try:
+        asyncio.run(executor._phase_render_export("wf-1"))
+        raise AssertionError("Expected WorkflowException for blocking export warning")
+    except WorkflowException as exc:
+        assert "Critical schema mismatch" in str(exc)
+
+    assert output_service.create_calls == 0
+    assert not out_file.exists()
+
+
+def test_render_export_blocks_on_docx_export_policy(tmp_path: Path) -> None:
+    out_file = tmp_path / "policy.docx"
+    out_file.write_text("temp", encoding="utf-8")
+
+    assembled = AssembledDocument(
+        title="PDD",
+        doc_type=DocType.PDD.value,
+        sections=[
+            {
+                "section_id": "s1",
+                "title": "Overview",
+                "level": 1,
+                "output_type": "text",
+                "content": "Hello",
+            }
+        ],
+    )
+
+    class _WorkflowServiceStub:
+        def __init__(self) -> None:
+            self.updated = []
+            self.wf = SimpleNamespace(
+                workflow_run_id="wf-docx-policy",
+                assembled_document=assembled.model_dump(),
+                style_map={},
+                warnings=[],
+                sheet_map={},
+                template_id="tpl-custom",
+                document_id="doc-1",
+                doc_type=DocType.PDD.value,
+            )
+
+        def get_or_raise(self, _: str):
+            return self.wf
+
+        def get_template(self, _: str):
+            return SimpleNamespace(
+                template_id="tpl-custom",
+                template_source=TemplateSource.CUSTOM,
+                file_path="x.docx",
+                placeholder_schema={},
+                resolved_section_bindings={"s1": ["p1"]},
+            )
+
+        def get_document(self, _: str):
+            return SimpleNamespace(document_id="doc-1", filename="doc.pdf")
+
+        def update(self, workflow_run_id: str, **kwargs):
+            self.updated.append((workflow_run_id, kwargs))
+
+    class _OutputServiceStub:
+        def __init__(self) -> None:
+            self.create_calls = 0
+
+        def create(self, **kwargs):
+            self.create_calls += 1
+            return SimpleNamespace(output_id="out-1", **kwargs)
+
+    class _RendererStub:
+        def render(self, **kwargs):
+            return out_file, "policy.docx", [{"code": "docx_legacy_export_disallowed", "phase": "RENDER_EXPORT"}]
+
+    class _EventServiceStub:
+        async def emit(self, *_args, **_kwargs):
+            return None
+
+    workflow_service = _WorkflowServiceStub()
+    output_service = _OutputServiceStub()
+    executor = WorkflowExecutor(
+        workflow_service=workflow_service,  # type: ignore[arg-type]
+        event_service=_EventServiceStub(),  # type: ignore[arg-type]
+        output_service=output_service,  # type: ignore[arg-type]
+        export_renderer=_RendererStub(),  # type: ignore[arg-type]
+    )
+
+    try:
+        asyncio.run(executor._phase_render_export("wf-docx-policy"))
+        raise AssertionError("Expected WorkflowException for DOCX export policy")
+    except WorkflowException as exc:
+        assert "template policy" in str(exc).lower()
+
+    assert output_service.create_calls == 0
+    assert not out_file.exists()
 
 
 def test_docx_filler_finds_heading(tmp_path: Path) -> None:

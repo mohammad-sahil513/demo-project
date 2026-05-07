@@ -4,6 +4,8 @@ import asyncio
 from pathlib import Path
 from zipfile import ZipFile
 
+from openpyxl import Workbook
+
 from core.constants import INBUILT_TEMPLATE_ID_PDD, TemplateStatus
 from core.ids import utc_now_iso
 from modules.template.extractor import TemplateExtractor
@@ -33,6 +35,16 @@ def _write_minimal_docx(path: Path) -> None:
     )
     with ZipFile(path, "w") as archive:
         archive.writestr("word/document.xml", document_xml)
+
+
+def _write_minimal_xlsx(path: Path) -> None:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Test Cases"
+    ws.append(["ID", "Scenario", "Steps", "Expected Result"])
+    ws2 = wb.create_sheet("Defects")
+    ws2.append(["Defect", "Severity", "Status", "Owner"])
+    wb.save(str(path))
 
 
 def test_inbuilt_registry_lookup_returns_sections_and_style() -> None:
@@ -65,7 +77,20 @@ def test_extractor_and_planner_build_custom_section_plan(tmp_path) -> None:
 
     assert len(plan) == 3
     assert plan[0].title == "1. Overview"
-    assert plan[2].output_type == "table"
+    assert any(section.output_type == "table" for section in plan)
+
+
+def test_extractor_builds_xlsx_sheet_schema(tmp_path) -> None:
+    xlsx_path = Path(tmp_path) / "uat.xlsx"
+    _write_minimal_xlsx(xlsx_path)
+    extractor = TemplateExtractor()
+    skeleton, _, sheet_map = extractor.extract_xlsx(xlsx_path)
+
+    assert skeleton.headings == ["Test Cases", "Defects"]
+    schema = sheet_map.get("schema")
+    assert isinstance(schema, list) and len(schema) == 2
+    assert schema[0]["headers"] == ["ID", "Scenario", "Steps", "Expected Result"]
+    assert schema[1]["required_columns"] == ["Defect", "Severity", "Status", "Owner"]
 
 
 def test_template_service_compile_pipeline_updates_template_record(tmp_path) -> None:

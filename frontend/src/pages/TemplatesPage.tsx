@@ -19,20 +19,36 @@ export function TemplatesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchTemplates = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  const fetchTemplates = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+    }
     try {
       const data = await templateApi.listTemplates()
       setTemplates(data)
     } catch {
       setError('Could not load templates. Is the backend running (see VITE_API_BASE / Vite proxy)?')
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
   }, [])
 
   useEffect(() => { fetchTemplates() }, [fetchTemplates])
+
+  const hasProcessingTemplates = templates.some(
+    (t) => t.status === 'COMPILING' || t.status === 'PENDING'
+  )
+  useEffect(() => {
+    if (!hasProcessingTemplates) return
+    const timer = window.setInterval(() => {
+      void fetchTemplates({ silent: true })
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [fetchTemplates, hasProcessingTemplates])
 
   const byType = (type: DocType) =>
     templates.filter(
@@ -75,24 +91,43 @@ export function TemplatesPage() {
         <section className="animate-slide-up" style={{ animationDelay: '0.1s' }}>
           <div className="flex items-center justify-between mb-8">
             <SectionHeader label="Existing Templates" number="02" />
-            <button
-              type="button"
-              onClick={fetchTemplates}
-              disabled={loading}
-              className="flex items-center gap-2 border border-ey-border px-4 py-2 font-body text-xs text-ey-ink hover:border-ey-ink-strong transition-colors group focus:outline-none focus-visible:ring-2 focus-visible:ring-ey-primary focus-visible:ring-offset-2"
-            >
-              <RefreshCw
-                size={12}
-                className={`transition-transform ${loading ? 'animate-spin' : 'group-hover:rotate-180'}`}
-              />
-              Refresh
-            </button>
+            <div className="flex items-center gap-3">
+              {hasProcessingTemplates && (
+                <div className="flex items-center gap-2">
+                  <span className="font-body text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1">
+                    Processing templates... auto-refreshing every 3s
+                  </span>
+                  <span className="font-body text-[11px] text-ey-muted">
+                    Usually takes 10-45 sec per template.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => fetchTemplates()}
+                    className="font-body text-[11px] underline text-ey-ink-strong hover:text-ey-ink"
+                  >
+                    Check now
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => fetchTemplates()}
+                disabled={loading}
+                className="flex items-center gap-2 border border-ey-border px-4 py-2 font-body text-xs text-ey-ink hover:border-ey-ink-strong transition-colors group focus:outline-none focus-visible:ring-2 focus-visible:ring-ey-primary focus-visible:ring-offset-2"
+              >
+                <RefreshCw
+                  size={12}
+                  className={`transition-transform ${loading ? 'animate-spin' : 'group-hover:rotate-180'}`}
+                />
+                Refresh
+              </button>
+            </div>
           </div>
 
           {error && (
             <div className="border border-red-200 bg-red-50 px-5 py-4 mb-8 flex items-center gap-3 animate-fade-in">
               <span className="font-body text-sm text-red-600">{error}</span>
-              <button onClick={fetchTemplates} className="ml-auto font-body text-xs underline text-red-600">
+              <button onClick={() => fetchTemplates()} className="ml-auto font-body text-xs underline text-red-600">
                 Retry
               </button>
             </div>

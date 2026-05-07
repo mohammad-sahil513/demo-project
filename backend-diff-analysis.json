@@ -1,0 +1,25 @@
+{
+  "snapshot_files": 119,
+  "backend_files_scanned": 133,
+  "changed": 0,
+  "missing": 0,
+  "extra": 14,
+  "changed_files": [],
+  "missing_files": [],
+  "extra_files": [
+    ".env.example",
+    "tests/test_hosting.py",
+    "tests/test_phase10_sse_stream.py",
+    "tests/test_phase10_workers_sse.py",
+    "tests/test_phase11_final_validation.py",
+    "tests/test_phase1_foundation.py",
+    "tests/test_phase2_api_stubs.py",
+    "tests/test_phase3_services.py",
+    "tests/test_phase4_infrastructure.py",
+    "tests/test_phase5_ingestion.py",
+    "tests/test_phase6_template_system.py",
+    "tests/test_phase7_retrieval.py",
+    "tests/test_phase8_generation.py",
+    "tests/test_phase9_assembly_export.py"
+  ]
+}

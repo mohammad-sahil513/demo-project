@@ -86,8 +86,8 @@ def test_chunker_creates_table_and_overlapping_text_chunks() -> None:
 
     text_chunks = [chunk for chunk in chunks if chunk.content_type == "text"]
     assert len(text_chunks) >= 2
-    assert text_chunks[0].chunk_id == "doc-1:chunk:000001"
-    assert text_chunks[1].chunk_id == "doc-1:chunk:000002"
+    assert text_chunks[0].chunk_id == "doc-1_chunk_000001"
+    assert text_chunks[1].chunk_id == "doc-1_chunk_000002"
     assert text_chunks[0].page_number is not None
 
     first_tokens = text_chunks[0].text.split()

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
+from core.config import settings
 from main import app
 
 
@@ -33,3 +35,27 @@ def test_phase11_ready_exposes_all_integration_flags() -> None:
     assert "kroki_url" in data and isinstance(data["kroki_url"], str)
     assert "storage_root" in data and isinstance(data["storage_root"], str)
     assert data.get("storage_writable") is True
+    assert data.get("critical_checks_passed") is True
+    assert isinstance(data.get("failed_checks"), list)
+
+
+def test_phase11_ready_returns_503_when_strict_env_missing_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "azure_openai_endpoint", "")
+    monkeypatch.setattr(settings, "azure_openai_api_key", "")
+    monkeypatch.setattr(settings, "azure_search_endpoint", "")
+    monkeypatch.setattr(settings, "azure_search_api_key", "")
+    monkeypatch.setattr(settings, "azure_document_intelligence_endpoint", "")
+    monkeypatch.setattr(settings, "azure_document_intelligence_key", "")
+
+    client = TestClient(app)
+    response = client.get("/api/ready")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["success"] is True
+    data = body["data"]
+    assert data["status"] == "not_ready"
+    assert data["critical_checks_passed"] is False
+    assert "azure_openai_configured" in data["failed_checks"]
+    assert "azure_search_configured" in data["failed_checks"]
+    assert "azure_doc_intelligence_configured" in data["failed_checks"]

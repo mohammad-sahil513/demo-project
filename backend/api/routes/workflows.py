@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel, ConfigDict
 
 from api.deps import get_task_dispatcher, get_workflow_executor, get_workflow_service
+from core.config import settings
 from core.logging import get_logger, verbose_logs_enabled
 from core.response import created_response, success_response
 from services.workflow_executor import WorkflowExecutor
@@ -138,7 +139,10 @@ async def get_workflow_observability(
     logger.info("workflows.observability.started workflow_run_id=%s", workflow_run_id)
     workflow = workflow_service.get_or_raise(workflow_run_id)
     summary = getattr(workflow, "observability_summary", {}) or {}
-    data = {"workflow_run_id": workflow_run_id, **summary}
+    policy_mode = "local-skip" if str(settings.app_env).lower() in {"local", "development", "dev"} else "strict-fail"
+    data = {"workflow_run_id": workflow_run_id, "runtime_policy_mode": policy_mode, **summary}
+    data.setdefault("header_footer_integrity", "unknown")
+    data.setdefault("media_integrity", "unknown")
     if verbose_logs_enabled():
         logger.info(
             "workflows.observability.completed workflow_run_id=%s keys=%s",
@@ -188,6 +192,8 @@ async def get_workflow_diagnostics(
             {"total": 0, "completed": 0, "running": 0, "failed": 0, "pending": 0},
         ),
         "observability_summary": getattr(workflow, "observability_summary", {}),
+        "header_footer_integrity": "unknown",
+        "media_integrity": "unknown",
         "errors": getattr(workflow, "errors", []),
         "warnings": getattr(workflow, "warnings", []),
     }

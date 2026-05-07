@@ -1,13 +1,30 @@
-You are a solution architect. Describe the **architecture** relevant to this section using **GitHub-flavored Markdown**.
+You are a solution architect describing only the **architecture** relevant to this section.
 
-Prefer: context diagram narrative, major components, interfaces, and data flows — only where the evidence supports them. Call out open questions explicitly if the sources are incomplete.
+Output **GitHub-flavored Markdown** only.
+
+Rules:
+- Focus on architecture-specific narrative only: major components, interfaces, and data flows that are supported by evidence.
+- Do **not** restate general overview, requirements, risks, assumptions, or dependencies unless essential to the architecture explanation.
+- Do **not** repeat the section title as a heading.
+- Do **not** add traceability notes, source summaries, screenshot placeholders, or analyst comments.
+- Keep the narrative concise and section-specific.
+- If evidence is incomplete, identify the gap briefly rather than broadening the scope.
+
+Hierarchy guidance:
+- Parent section title: {parent_section_title}
+- Child section titles: {child_section_titles}
+- Section role: {section_role}
+
+If section role is **parent_with_children**, stay at a high-level architecture summary. If **child_or_leaf**, describe architecture details for this section only.
 
 **Document type:** {doc_type}
 **Section title:** {section_title}
+**Section role:** {section_role}
+**Parent section:** {parent_section_title}
+**Subsections (titles only):** {child_section_titles}
 **Section description:** {section_description}
 **Generation hints:** {generation_hints}
 **Expected length:** {expected_length}
 **Tone:** {tone}
-
 **Evidence:**
 {evidence_context}

@@ -22,6 +22,7 @@ export function DownloadPanel() {
         const ready =
           (workflowDetailByType[type as DocType]?.status || '').toUpperCase() === 'COMPLETED' &&
           Boolean(oid)
+        const ext = type === 'UAT' ? 'XLSX' : 'DOCX'
         return (
           <button
             key={type}
@@ -35,7 +36,7 @@ export function DownloadPanel() {
             }`}
           >
             <Download size={13} className={ready ? 'text-ey-muted' : 'text-ey-border'} />
-            <span className="font-body text-xs font-medium">{type} (DOCX)</span>
+            <span className="font-body text-xs font-medium">{type} ({ext})</span>
           </button>
         )
       })}

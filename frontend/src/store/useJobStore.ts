@@ -14,6 +14,14 @@ export interface Template {
   description: string
   sections_preview: string[]
   is_custom?: boolean
+  compile_error?: string | null
+  schema_version?: string | null
+  validation_status?: string | null
+  placeholder_schema?: Record<string, unknown>
+  validation_errors?: Array<Record<string, unknown>>
+  validation_warnings?: Array<Record<string, unknown>>
+  section_placeholder_bindings?: Record<string, string | string[]>
+  resolved_section_bindings?: Record<string, string[]>
 }
 
 export interface Section {
