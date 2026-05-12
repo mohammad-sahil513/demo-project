@@ -1,4 +1,31 @@
-"""Normalize generated section content before export."""
+"""Normalize generated section content before export.
+
+The LLM emits prose that mostly matches the prompt contract but occasionally:
+
+- repeats the section title as a heading at the top,
+- includes drafting notes (``Traceability notes:``, ``Sources:``),
+- writes a generic "this section describes..." lead-in for a parent that
+  already has children,
+- duplicates paragraphs,
+- decorates lines with ``**__text__**`` style emphasis wrappers,
+- runs on with 20+ bullets in a parent section.
+
+This module strips those quirks deterministically so the export pipeline
+gets clean content. Each transformation appends a short, machine-readable
+note to ``NormalizationResult.notes`` for observability.
+
+Order of operations
+-------------------
+1. Strip the leading duplicated heading.
+2. Strip internal-only lines (final-mode export only).
+3. Trim parent content where the first child heading appears.
+4. Strip decorative emphasis wrappers.
+5. Drop generic parent lead-ins when the section has children.
+6. Compress oversized parent bullet lists.
+7. De-duplicate paragraphs.
+8. Collapse excessive blank lines.
+9. Final pass through :func:`sanitize_deliverable_markdown` for diagram/transport leakage.
+"""
 from __future__ import annotations
 
 import re
@@ -6,9 +33,13 @@ import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
+from modules.assembly.content_hygiene import sanitize_deliverable_markdown
+
 
 @dataclass(frozen=True, slots=True)
 class NormalizationResult:
+    """Cleaned content + list of transformation notes (one per applied rule)."""
+
     content: str
     notes: list[str] = field(default_factory=list)
 
@@ -30,6 +61,12 @@ _DECORATIVE_WRAPPER_PATTERNS = (
 
 
 def _normalize_heading_text(value: str) -> str:
+    """Lowercase, strip markdown/numbering/punctuation — used for heading equality.
+
+    NFKC normalization handles ligatures and full-width characters; we then
+    drop the ``#`` prefix and any numeric/alpha numbering so a heading is
+    equal to itself regardless of formatting variant.
+    """
     text = unicodedata.normalize("NFKC", value or "").strip().lower()
     text = re.sub(r"\s+", " ", text)
 
@@ -341,18 +378,22 @@ def normalize_section_content(
     child_titles: Iterable[str] = (),
     export_mode: str = "final",
 ) -> NormalizationResult:
-    """
-    Normalize generated content before export.
+    """Normalize generated content before export.
 
-    Current behaviors:
-    - remove duplicated leading section title headings
-    - remove internal drafting lines in final mode
-    - trim parent-section content at first detected child heading
-    - remove generic meta-summary lead-ins for parent sections
-    - remove repeated paragraphs
-    - remove decorative markdown emphasis wrappers
-    - compress overly long parent bullet lists
-    - collapse excessive blank lines
+    See the module docstring for the full ordered list of transformations.
+    Each rule appends a note when it actually changes the content so the
+    workflow record can show *which* hygiene rules fired.
+
+    Args:
+        section_title: The section's own title — used to detect/remove the
+            common "model repeats the heading" pattern.
+        content: Raw LLM output.
+        child_titles: Titles of immediate-or-nested children. When non-empty
+            the section is treated as a parent and parent-specific rules
+            (lead-in stripping, bullet compression) activate.
+        export_mode: ``"final"`` (default) or ``"preview"``. Preview mode
+            keeps internal drafting lines so reviewers can see what the
+            generator emitted.
     """
     if not content:
         return NormalizationResult(content="", notes=[])
@@ -394,4 +435,10 @@ def normalize_section_content(
     text = _dedupe_paragraphs(text, notes=notes)
 
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    hygiene = sanitize_deliverable_markdown(text)
+    if hygiene.notes:
+        notes.extend(hygiene.notes)
+    text = hygiene.text
+
     return NormalizationResult(content=text, notes=notes)

@@ -1,4 +1,13 @@
-"""Inbuilt PDD section definitions."""
+"""Inbuilt PDD (Project Definition Document) section definitions.
+
+Static :class:`SectionDefinition` list that the workflow uses when a user
+selects the built-in PDD template. Each entry pins the prompt selector,
+retrieval query, and output type for one section; the ``execution_order``
+becomes the wave key in :func:`compute_execution_waves`.
+
+To add or reorder sections: update this file and re-run the section
+contract tests in ``backend/tests``.
+"""
 
 from __future__ import annotations
 

@@ -1,3 +1,16 @@
+"""Foundation tests: settings, ID generation, logging filters, and repository CRUD.
+
+Scenario matrix:
+
+- Ensure ``core.config.settings`` loads, ``ensure_storage_dirs`` is idempotent,
+  and storage roots match expectation.
+- Verify every ID generator yields the documented prefix and length.
+- Smoke test the structured logging configuration and the phase-only
+  console filter.
+- Round-trip records through every repository (documents, templates,
+  workflows, outputs) to confirm CRUD + list helpers work.
+"""
+
 from __future__ import annotations
 
 import re

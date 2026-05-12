@@ -1,4 +1,25 @@
-"""Dependency providers for API routes."""
+"""Dependency providers for API routes — FastAPI ``Depends(...)`` wiring.
+
+Every service the API needs is constructed here and injected into routes
+via FastAPI's dependency system. This single module is therefore the
+composition root for the request-handling side of the backend.
+
+Two patterns are used:
+
+- ``@lru_cache(maxsize=1)`` for adapter and module-level singletons that
+  hold expensive resources (HTTP clients, encoders) or rely on caches.
+- Plain factory functions for services and repositories — they are
+  cheap to construct per request and keep state on the underlying
+  repository, not on the service itself.
+
+Two true module-level singletons live at the top of the file:
+
+- :data:`event_service_singleton`   the in-memory SSE broker; sharing
+                                    state across requests is the whole
+                                    point.
+- :data:`task_dispatcher_singleton` background task helper; stateless,
+                                    so a single instance is sufficient.
+"""
 
 from __future__ import annotations
 

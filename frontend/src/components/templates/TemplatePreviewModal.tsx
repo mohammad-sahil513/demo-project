@@ -1,3 +1,15 @@
+/**
+ * Modal dialog that previews a template without leaving the current page.
+ *
+ * Used from the upload page's {@link TemplateSelector} and the
+ * templates list page. Renders the DOCX preview inline via the shared
+ * {@link useTemplatePreview} hook, or the HTML preview for XLSX
+ * templates, along with the schema + validation panels.
+ *
+ * Closes on Escape, on backdrop click, and on the explicit close
+ * button — the `useEffect` registers/removes the key listener exactly
+ * once per mount.
+ */
 import { useEffect, useCallback, useRef } from 'react'
 import { X, Loader2, AlertCircle } from 'lucide-react'
 import { Template } from '../../store/useJobStore'

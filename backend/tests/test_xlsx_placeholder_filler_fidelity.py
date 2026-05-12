@@ -1,3 +1,14 @@
+"""XLSX placeholder filler fidelity: sheet preservation and named range writes.
+
+Builds tiny XLSX templates with named ranges, runs
+:class:`XlsxPlaceholderFiller`, and confirms that:
+
+- Every sheet from the template appears in the output workbook.
+- Named ranges resolve to the same cells before and after fill.
+- The contract guard surfaces a warning when the placeholder schema is
+  absent.
+"""
+
 from pathlib import Path
 
 from openpyxl import Workbook

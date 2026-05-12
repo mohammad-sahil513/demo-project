@@ -1,3 +1,10 @@
+"""XLSX template schema extraction: named ranges become placeholders.
+
+Verifies that :func:`extract_xlsx_schema` lifts every defined name into
+a ``PlaceholderDef`` with the destination address as ``xml_path`` and
+records sheet anchors (name, index, dimensions) for fidelity checks.
+"""
+
 from pathlib import Path
 
 from openpyxl import Workbook

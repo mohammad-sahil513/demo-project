@@ -1,10 +1,24 @@
-"""Build a normalized section plan for custom templates."""
+"""Build a normalized section plan for custom templates.
+
+Inputs:
+- :class:`DocumentSkeleton` from the template extractor (headings, table
+  header rows, raw structure).
+- ``classifications`` list from :class:`TemplateClassifier` — one entry
+  per heading with ``output_type``, ``description``, ``prompt_selector``,
+  ``required_fields`` etc.
+
+Output: an ordered list of :class:`SectionDefinition` that the GENERATION
+phase iterates over. Section IDs are slugged from the heading text so they
+are stable across re-compiles (helps debugging by giving each section a
+human-readable handle).
+"""
 
 from __future__ import annotations
 
 import re
 from typing import Any
 
+from modules.template.heading_plan_filter import all_heading_items_from_skeleton, filter_heading_items_for_section_plan
 from modules.template.models import ContentMode, DocumentSkeleton, ExtractedHeading, SectionDefinition
 
 
@@ -16,12 +30,14 @@ def _normalize_content_mode(raw: object) -> ContentMode:
 
 
 class SectionPlanner:
+    """Stateless planner — fold classifier output back over the heading skeleton."""
+
     def build_from_skeleton_and_classifications(
         self,
         skeleton: DocumentSkeleton,
         classifications: list[dict[str, Any]],
     ) -> list[SectionDefinition]:
-        heading_items = self._resolve_heading_items(skeleton)
+        heading_items = self._resolve_heading_items(skeleton, classifications)
         plan: list[SectionDefinition] = []
 
         # Maintain most recent section_id seen at each level
@@ -70,21 +86,35 @@ class SectionPlanner:
 
         return plan
 
-    def _resolve_heading_items(self, skeleton: DocumentSkeleton) -> list[ExtractedHeading]:
-        if skeleton.heading_items:
-            return list(skeleton.heading_items)
+    def _resolve_heading_items(
+        self,
+        skeleton: DocumentSkeleton,
+        classifications: list[dict[str, Any]],
+    ) -> list[ExtractedHeading]:
+        raw = all_heading_items_from_skeleton(skeleton)
+        if not raw:
+            return raw
 
-        # Backward-compatible fallback if old skeletons exist
-        return [
-            ExtractedHeading(
-                text=heading,
-                level=1,
-                order=index + 1,
-                style_name=None,
-                numbering=None,
+        by_heading_key, by_heading_text = self._classification_indexes(classifications)
+        classifier_filtered: list[ExtractedHeading] = []
+        any_include_false = False
+        for i, heading_item in enumerate(raw):
+            details = self._resolve_classification_for_heading(
+                classifications,
+                heading_item,
+                i,
+                by_heading_key,
+                by_heading_text,
             )
-            for index, heading in enumerate(skeleton.headings)
-        ]
+            if details.get("include_in_section_plan") is False:
+                any_include_false = True
+                continue
+            classifier_filtered.append(heading_item)
+
+        if any_include_false:
+            return classifier_filtered if classifier_filtered else raw
+
+        return filter_heading_items_for_section_plan(raw)
 
     def _classification_for_index(self, classifications: list[dict[str, Any]], index: int) -> dict[str, Any]:
         if 0 <= index < len(classifications):
@@ -122,6 +152,13 @@ class SectionPlanner:
         by_heading_key: dict[str, dict[str, Any]],
         by_heading_text: dict[str, dict[str, Any]],
     ) -> dict[str, Any]:
+        """Match a heading to its classification by key, then title, then index.
+
+        Three lookup strategies in priority order make us resilient to:
+        1. Classifier reordering / dropping items (key match wins).
+        2. Heading text drift between extraction and classification.
+        3. Anything else — positional fallback.
+        """
         key = str(heading_item.order)
         details = by_heading_key.get(key)
         if details:

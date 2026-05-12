@@ -1,3 +1,11 @@
+"""Strict-mode DOCX integrity checks: zip, media, content controls, relationships.
+
+Constructs tiny DOCX fixtures with controlled deviations (missing media,
+relationship drift, tampered headers) and asserts that
+``check_docx_integrity`` returns the expected error codes for each. Used
+to lock in the strict-fidelity contract for custom DOCX exports.
+"""
+
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 

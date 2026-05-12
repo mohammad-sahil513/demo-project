@@ -1,3 +1,13 @@
+/**
+ * Circular segmented progress indicator used on the Progress page.
+ *
+ * Draws {@link SEGMENTS} pie slices around a circle; the number of
+ * filled slices is derived from the workflow's `overall_progress_percent`
+ * (0-100). The center shows the current phase label and a percentage.
+ *
+ * Pure visual component — it reads the active workflow status from
+ * {@link useJobStore} so callers do not have to thread props through.
+ */
 import { useJobStore } from '../../store/useJobStore'
 
 const SEGMENTS = 12

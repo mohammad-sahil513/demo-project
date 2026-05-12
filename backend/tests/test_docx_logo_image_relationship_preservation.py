@@ -1,3 +1,10 @@
+"""Logo / image relationship preservation: media_parts anchors are mandatory.
+
+DOCX templates with embedded logos must include the media parts in the
+fidelity anchor map; this test confirms that omitting them surfaces the
+expected validation warning.
+"""
+
 from modules.template.contract_validator import validate_template_schema
 from modules.template.schema_models import TemplateSchema
 

@@ -1,3 +1,15 @@
+"""Phase 4 infrastructure adapter tests: Azure OpenAI, AI Search, Document Intelligence.
+
+Exercises the adapter contracts with mocked HTTP responses:
+
+- :class:`AzureSKAdapter` retries on empty completions, parses JSON from
+  fenced/raw bodies, and routes models by task name.
+- :class:`AzureSearchClient` builds the hybrid search payload, applies
+  retry/backoff on 5xx responses, and constructs document filters.
+- :class:`AzureDocIntelligenceClient` follows the async submit/poll flow
+  and converts the result into a :class:`ParsedDocument`.
+"""
+
 from __future__ import annotations
 
 import asyncio

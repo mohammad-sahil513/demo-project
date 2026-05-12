@@ -1,3 +1,14 @@
+/**
+ * Top navigation bar — persistent across every route.
+ *
+ * Renders three job-flow steps (Upload, Generate, Review) as buttons
+ * with progressive enablement: a step becomes clickable only after the
+ * previous step's job state allows it (e.g. "Review" enables once
+ * `status === 'completed'`). A separate "Templates" button always
+ * routes to `/templates` regardless of job state.
+ *
+ * Clicking the logo resets the job store and returns to `/`.
+ */
 import { useNavigate, useLocation } from 'react-router-dom'
 import clsx from 'clsx'
 import { useJobStore } from '../../store/useJobStore'

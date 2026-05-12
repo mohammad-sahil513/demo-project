@@ -1,4 +1,17 @@
-"""Infer which DOCX export branch applies for a template (observability / UI)."""
+"""Infer which DOCX export branch applies for a template (observability / UI).
+
+The compiled template + current feature flags determine which export path
+will run when a workflow finishes. The UI surfaces this hint so users can
+diagnose unexpected fidelity behavior at a glance. The hint values are:
+
+- ``inbuilt_docx_builder``       Inbuilt PDD/SDD/UAT — built from scratch.
+- ``native_placeholders``        Custom DOCX, placeholder-native path.
+- ``strict_placeholder_filler``  Custom DOCX, strict fidelity, no native.
+- ``legacy_heading_fill``        Custom DOCX, heading-based filler.
+- ``blocked_require_native``     Native required but prerequisites missing.
+- ``blocked_legacy_disallowed``  Legacy not allowed; native not available.
+- ``xlsx_or_other``              Not a DOCX export.
+"""
 
 from __future__ import annotations
 

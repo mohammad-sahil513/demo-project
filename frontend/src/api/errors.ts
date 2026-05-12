@@ -1,3 +1,18 @@
+/**
+ * Translate any failure thrown by the API client (or a generic `Error`)
+ * into a single human-readable message suitable for toast notifications
+ * and inline UI errors.
+ *
+ * Recognized shapes (in priority order):
+ *
+ * 1. Backend envelope `{ success: false, message, errors }` — message +
+ *    optional appended `(code: message; code: message)` list.
+ * 2. FastAPI `{ detail: ... }` — flattened via `formatDetail` so
+ *    array-of-validation-errors becomes a single sentence.
+ * 3. Axios network error message (e.g. timeout, DNS).
+ * 4. Plain `Error.message`.
+ * 5. The supplied fallback string.
+ */
 import { isAxiosError, type AxiosError } from 'axios'
 
 type ErrorBody = {

@@ -1,0 +1,7 @@
+services:
+  kroki:
+    image: yuzutech/kroki:latest
+    container_name: kroki
+    restart: unless-stopped
+    ports:
+      - "${KROKI_HOST_PORT:-8001}:8000"

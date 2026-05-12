@@ -1,4 +1,4 @@
-"""Inbuilt style map for PDD."""
+"""Inbuilt style map for PDD — dark slate table header on portrait pages."""
 
 from __future__ import annotations
 

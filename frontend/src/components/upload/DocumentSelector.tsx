@@ -1,3 +1,11 @@
+/**
+ * Deliverable picker — choose which of PDD / SDD / UAT to generate.
+ *
+ * Multi-select; at least one deliverable must be checked before the
+ * upload form can be submitted. State lives on the job store under
+ * `selectedDocs`. A "Select all" toggle flips between the empty list
+ * and every option in one click.
+ */
 import { useJobStore, DocType } from '../../store/useJobStore'
 
 const DOC_OPTIONS: { type: DocType; label: string; desc: string }[] = [

@@ -1,3 +1,15 @@
+/**
+ * Inline upload card on the templates page.
+ *
+ * Drag-and-drop area + file picker for adding a new custom template.
+ * Enforces the file-type contract (PDD/SDD must be `.docx`, UAT must
+ * be `.xlsx`) client-side before issuing the request so the user gets
+ * an immediate error rather than a backend 400.
+ *
+ * On success the backend returns the COMPILING record; we surface a
+ * "queued for compile" toast and notify the parent via `onSuccess`,
+ * which triggers a silent poll on the list.
+ */
 import { useRef, useState, DragEvent, ChangeEvent } from 'react'
 import { Upload, X, FileText, Plus, Check } from 'lucide-react'
 import { templateApi } from '../../api/templateApi'

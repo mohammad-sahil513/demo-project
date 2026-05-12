@@ -1,3 +1,10 @@
+/**
+ * Sidebar info card on the template preview page.
+ *
+ * Shows the template's filename, type, version, and a short note
+ * explaining what the preview renders (DOCX inline vs XLSX HTML). The
+ * card is intentionally read-only — actions live elsewhere in the page.
+ */
 import { FileText } from 'lucide-react'
 import type { TemplateDto } from '../../api/types'
 

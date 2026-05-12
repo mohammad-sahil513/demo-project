@@ -1,4 +1,21 @@
-"""Section classification for custom template headings."""
+"""Section classification for custom template headings.
+
+Given a :class:`DocumentSkeleton` (parsed headings + structure), the
+classifier asks the LLM to label each heading with:
+
+- ``output_type``      ``"text"`` | ``"table"`` | ``"diagram"``
+- ``description``      short blurb shown in the UI and used as prompt context
+- ``prompt_selector``  which prompt YAML to use during generation
+- ``required_fields``  expected columns / structured fields per section
+- ``content_mode``     ``"generate"`` | ``"skip"`` | ``"heading_only"``
+- ``is_complex``       route to the stronger LLM
+
+Robustness: the classifier falls back to a deterministic heuristic any time
+the LLM call or the response is unusable (no adapter, no prompt file,
+non-dict payload, missing sections list, empty results, etc.). The heuristic
+keys off heading text — words like "matrix", "table", "register" -> table;
+"diagram", "architecture", "flow" -> diagram. Anything else -> text.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +28,7 @@ import yaml
 from core.exceptions import TemplateException
 from core.logging import get_logger
 from infrastructure.sk_adapter import AzureSKAdapter
+from modules.template.heading_plan_filter import all_heading_items_from_skeleton
 from modules.template.models import DocumentSkeleton, ExtractedHeading
 from modules.template.planner import _normalize_content_mode
 
@@ -39,7 +57,7 @@ class TemplateClassifier:
         - If prompt file is missing -> heuristic fallback
         - If model returns invalid/empty JSON -> heuristic fallback
         """
-        heading_items = self._resolve_heading_items(skeleton)
+        heading_items = all_heading_items_from_skeleton(skeleton)
         if not heading_items:
             return []
 
@@ -91,6 +109,12 @@ class TemplateClassifier:
             if not isinstance(required_fields, list):
                 required_fields = []
 
+            inc = item.get("include_in_section_plan")
+            if inc is None:
+                include_flag: bool | None = None
+            else:
+                include_flag = bool(inc)
+
             results.append(
                 {
                     "heading": str(item.get("heading") or fallback_heading),
@@ -100,6 +124,7 @@ class TemplateClassifier:
                     "required_fields": [str(field) for field in required_fields],
                     "is_complex": bool(item.get("is_complex") or False),
                     "content_mode": _normalize_content_mode(item.get("content_mode")),
+                    "include_in_section_plan": include_flag,
                 }
             )
 
@@ -119,21 +144,6 @@ class TemplateClassifier:
         self._attach_heading_keys(results, heading_items)
         logger.info("template.classifier.completed sections=%s", len(results))
         return results
-
-    def _resolve_heading_items(self, skeleton: DocumentSkeleton) -> list[ExtractedHeading]:
-        if skeleton.heading_items:
-            return list(skeleton.heading_items)
-
-        return [
-            ExtractedHeading(
-                text=heading,
-                level=1,
-                order=index + 1,
-                style_name=None,
-                numbering=None,
-            )
-            for index, heading in enumerate(skeleton.headings)
-        ]
 
     def _format_heading_line(self, item: ExtractedHeading) -> str:
         numbering = f"{item.numbering} " if item.numbering else ""
@@ -214,6 +224,7 @@ class TemplateClassifier:
             "required_fields": [],
             "is_complex": index <= 1,
             "content_mode": "generate",
+            "include_in_section_plan": None,
         }
 
     def _normalize_output_type(self, value: str) -> str:

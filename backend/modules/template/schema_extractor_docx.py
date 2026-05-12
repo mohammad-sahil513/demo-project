@@ -1,4 +1,22 @@
-"""DOCX schema extractor for placeholder and fidelity anchors."""
+"""DOCX schema extractor — placeholder discovery + fidelity anchors.
+
+Reads a custom DOCX template and produces a :class:`TemplateSchema` that
+the placeholder-native filler uses to drop content into the file without
+disturbing surrounding layout.
+
+Three placeholder sources are recognized (priority does not matter — the
+``placeholder_id`` is required to be unique across all of them):
+
+- ``{{ token }}`` tokens inside paragraphs (``text_tokens`` scope).
+- Content controls (``<w:sdt>``), keyed off ``<w:tag>`` (preferred) or
+  ``<w:alias>`` (``content_control`` scope).
+- Named bookmarks (``<w:bookmarkStart>``) that are user-visible — internal
+  bookmarks prefixed with ``_`` are ignored (``bookmark_range`` scope).
+
+The schema also captures *fidelity anchors* — header/footer/relationship
+and media part names. The integrity checker uses these to verify that the
+filler did not accidentally drop or alter any of those parts.
+"""
 
 from __future__ import annotations
 

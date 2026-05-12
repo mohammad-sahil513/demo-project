@@ -1,4 +1,8 @@
-"""Workflow JSON repository."""
+"""Workflow repository — persists :class:`WorkflowRecord` as JSON files.
+
+Adds a single domain helper, :meth:`list_by_document`, which is useful for
+the UI's "previous runs for this document" panel and for cleanup tooling.
+"""
 
 from __future__ import annotations
 
@@ -22,4 +26,10 @@ class WorkflowRepository(BaseJsonRepository[WorkflowRecord]):
         return super().update(workflow_run_id, resource_name="Workflow", **fields)
 
     def list_by_document(self, document_id: str) -> list[WorkflowRecord]:
+        """Return all workflow runs that reference ``document_id``.
+
+        Linear scan over ``list_all`` is fine for our scale — a few thousand
+        workflows is still under a second on local disk. Switch to an index
+        if storage ever moves to a remote object store.
+        """
         return [w for w in self.list_all() if w.document_id == document_id]

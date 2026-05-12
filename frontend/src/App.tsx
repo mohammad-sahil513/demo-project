@@ -1,3 +1,17 @@
+/**
+ * Top-level router and layout shell.
+ *
+ * Routes (all rendered under the persistent {@link Navbar}):
+ *
+ * - `/`                                    Upload page (pick BRD + template).
+ * - `/progress`                            Live workflow progress via SSE.
+ * - `/output`                              Final exported document review.
+ * - `/templates`                           Manage custom templates.
+ * - `/templates/:templateId/preview`       Template preview detail view.
+ *
+ * Pages are loaded lazily with `React.lazy` so each route is its own
+ * chunk in the production build — keeps the initial bundle small.
+ */
 import { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Navbar } from './components/layout/Navbar'

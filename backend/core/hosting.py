@@ -1,4 +1,19 @@
-"""Production hosting helpers: storage health and in-process task recovery."""
+"""Production hosting helpers: strict-mode validation, storage health, and recovery.
+
+These helpers run inside the FastAPI lifespan (see :func:`run_hosting_startup`)
+and are responsible for the three checks any operator needs the first time
+they boot the service on a new host:
+
+1. **Strict-mode policy** — staging/production must run with the secure
+   defaults. We fail-fast on startup with a precise list of violations rather
+   than wait for a runtime export to misbehave.
+2. **Storage probe** — the storage root must be writable. Without it nothing
+   else in the system will work, so we surface this as a clear ``ERROR`` log
+   to help the operator point ``STORAGE_ROOT`` at a real persistent volume.
+3. **Workflow reconciliation** — BackgroundTasks die with the process. Any
+   workflow still marked ``RUNNING`` after a restart is reconciled to
+   ``FAILED`` with a friendly message so the UI stops showing it as alive.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +27,8 @@ from repositories.workflow_repo import WorkflowRepository
 
 logger = get_logger(__name__)
 
+# User-facing message attached to interrupted workflows. Kept as a constant so
+# it can be matched in UI tests and re-used in any future recovery code.
 _RESTART_MSG = (
     "Workflow interrupted: the server restarted or the worker process ended before completion. "
     "Start a new workflow run if you still need this output."
@@ -19,8 +36,15 @@ _RESTART_MSG = (
 
 
 def strict_policy_violations(settings: Settings) -> list[str]:
-    """
-    Return a list of strict-mode policy violations for staging/production.
+    """Return a list of strict-mode policy violations for staging/production.
+
+    The two dicts encode the contract explicitly:
+
+    - ``required_true`` — flags that must be on (template fidelity, schema
+      validation, etc.).
+    - ``required_false`` — flags that must be off (legacy export, debug).
+
+    An empty list means the configuration is acceptable.
     """
     violations: list[str] = []
     required_true = {
@@ -45,7 +69,12 @@ def strict_policy_violations(settings: Settings) -> list[str]:
 
 
 def verify_storage_writable(storage_root: Path) -> bool:
-    """Return True if ``storage_root`` can create and delete a small probe file."""
+    """Return ``True`` if ``storage_root`` can create and delete a small probe file.
+
+    Uses a hidden probe filename so it does not show up in directory listings
+    the user might inspect. We always attempt to unlink the probe even on
+    failure — defensive cleanup, in case the write half-succeeded.
+    """
     storage_root.mkdir(parents=True, exist_ok=True)
     probe = storage_root / ".storage_write_probe"
     try:
@@ -63,15 +92,19 @@ def verify_storage_writable(storage_root: Path) -> bool:
             if probe.is_file():
                 probe.unlink()
         except OSError:
+            # Don't shadow the original failure mode by raising here.
             pass
 
 
 def reconcile_interrupted_workflows(repo: WorkflowRepository) -> int:
-    """
-    Mark ``RUNNING`` workflows as ``FAILED`` after a process restart.
+    """Mark ``RUNNING`` workflows as ``FAILED`` after a process restart.
 
-    Background work is dispatched with FastAPI BackgroundTasks; it does not survive
-    restarts. This avoids workflows stuck in RUNNING forever.
+    Background work is dispatched with FastAPI BackgroundTasks; it does not
+    survive restarts. Without this reconciliation, the UI would keep showing
+    the interrupted run as live forever.
+
+    The reconciliation is intentionally non-destructive: existing ``errors``
+    are preserved and a new ``SERVER_RESTART`` entry is appended.
     """
     n = 0
     for w in repo.list_all():
@@ -99,7 +132,13 @@ def reconcile_interrupted_workflows(repo: WorkflowRepository) -> int:
 
 
 def run_hosting_startup(settings: Settings) -> None:
-    """Storage probe + orphaned workflow reconciliation (call from app lifespan)."""
+    """Storage probe + orphaned workflow reconciliation (call from app lifespan).
+
+    In strict environments we *refuse to start* if policy violations exist:
+    a misconfigured production service is more dangerous than one that won't
+    boot. The exception bubbles up through the FastAPI lifespan and
+    ``uvicorn`` exits with a non-zero status.
+    """
     if settings.is_strict_env():
         violations = strict_policy_violations(settings)
         if violations:
@@ -117,6 +156,7 @@ def run_hosting_startup(settings: Settings) -> None:
             "Container Apps/App Service, Kubernetes PVC, etc.)."
         )
     if settings.log_cleanup_enabled:
+        # ``max(0, ...)`` guards against negative env values without raising.
         deleted = cleanup_old_observability_logs(
             logs_path=settings.logs_path,
             retention_days=max(0, int(settings.log_retention_days)),

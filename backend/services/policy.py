@@ -1,4 +1,11 @@
-"""Cross-cutting API rules (validation and delete guards)."""
+"""Cross-cutting validation rules shared across services and API routes.
+
+Small, dependency-free guard functions that raise
+:class:`ValidationException` when an invariant is violated. Pulling these
+into a separate module keeps the rules unit-testable and ensures both the
+API layer (pre-validation) and the workflow service (defense in depth)
+enforce the same checks.
+"""
 
 from __future__ import annotations
 

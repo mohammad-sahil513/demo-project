@@ -1,3 +1,17 @@
+"""Phase 3 service-layer tests: document, template, workflow, output, events.
+
+Validates the orchestration glue between API and modules:
+
+- ``DocumentService`` enforces delete guards while workflows run.
+- ``TemplateService`` transitions records through COMPILING -> READY /
+  FAILED and cleans up preview artifacts on failure.
+- ``WorkflowService`` rejects document/template type mismatches and
+  resolves inbuilt IDs to synthetic records.
+- ``OutputService`` rejects unsupported extensions and reports the
+  on-disk size of the produced file.
+- ``EventService`` fanout, bounded queues, and unsubscribe semantics.
+"""
+
 from __future__ import annotations
 
 import asyncio

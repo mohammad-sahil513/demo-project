@@ -1,3 +1,12 @@
+"""End-to-end golden test for the UAT workflow.
+
+Runs the whole pipeline with a recorded BRD and the inbuilt UAT template
+against a deterministic fake Azure stack. Asserts that the final exported
+XLSX contains every expected sheet, that the workflow record has zero
+errors, and that the observability summary matches the recorded
+fixture — guarding against silent regressions across phases.
+"""
+
 from __future__ import annotations
 
 import json

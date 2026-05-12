@@ -1,4 +1,14 @@
-"""Schema models for deterministic template placeholders."""
+"""Schema models for deterministic template placeholders.
+
+The placeholder schema is the contract between the *placeholder-native* DOCX
+export path and a custom uploaded template. Each placeholder pins an exact
+OOXML location (``part`` + ``xml_path``) so the filler can write content
+without disturbing surrounding content.
+
+Used by ``modules.template.schema_extractor_docx`` (extraction at compile
+time), ``modules.template.contract_validator`` (validation), and
+``modules.export.docx_placeholder_filler`` (rendering).
+"""
 
 from __future__ import annotations
 

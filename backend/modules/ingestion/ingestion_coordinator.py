@@ -1,4 +1,13 @@
-"""Serialize ingest per BRD and skip Phase 2 when chunks already indexed (ingest-once)."""
+"""Serialize ingest per BRD and skip Phase 2 when chunks already indexed (ingest-once).
+
+This coordinator owns the policy:
+
+- Concurrent workflows for the same document wait on a single asyncio lock.
+- A document that is already :class:`DocumentIngestionStatus.INDEXED` skips
+  ingestion entirely — PDD, SDD, and UAT runs share the same index entries.
+- :class:`DocumentIngestionStatus.FAILED` documents may be retried; upserts
+  are idempotent (search action ``mergeOrUpload`` keyed on ``chunk_id``).
+"""
 
 from __future__ import annotations
 
@@ -38,9 +47,13 @@ class IngestionCoordinator:
 
     def __init__(self, document_repo: DocumentRepository) -> None:
         self._document_repo = document_repo
+        # Process-local locks. A multi-process deployment would need an
+        # out-of-band coordination mechanism (Redis lock, queue worker) but
+        # the current FastAPI service is single-process.
         self._locks: dict[str, asyncio.Lock] = {}
 
     def _lock(self, document_id: str) -> asyncio.Lock:
+        """Lazily create and return the lock for one document."""
         if document_id not in self._locks:
             self._locks[document_id] = asyncio.Lock()
         return self._locks[document_id]
@@ -50,15 +63,24 @@ class IngestionCoordinator:
         document_id: str,
         ingest: Callable[[DocumentRecord], Awaitable[IngestionRunResult]],
     ) -> tuple[bool, IngestionRunResult | None]:
-        """Return ``(skipped, result)`` where ``skipped`` means Phase 2 did not run."""
+        """Return ``(skipped, result)`` where ``skipped`` means Phase 2 did not run.
+
+        The caller (``services.workflow_executor``) supplies the ``ingest``
+        callable so this coordinator stays free of the orchestrator details
+        and is easy to unit-test with a mock callable.
+        """
         async with self._lock(document_id):
             doc = self._document_repo.get_or_raise(document_id)
+            # Ingest-once short-circuit. The current call site already has
+            # the lock, so we won't race with another workflow re-indexing.
             if doc.ingestion_status == DocumentIngestionStatus.INDEXED:
                 return True, None
 
             try:
                 result = await ingest(doc)
             except Exception as exc:  # noqa: BLE001 — surface to workflow layer
+                # Persist FAILED + the error message so operators can audit
+                # what happened without diving into the per-workflow log.
                 self._document_repo.update(
                     document_id,
                     ingestion_status=DocumentIngestionStatus.FAILED,
@@ -66,6 +88,9 @@ class IngestionCoordinator:
                 )
                 raise
 
+            # Success — flip to INDEXED and clear any prior failure. We
+            # preserve ``page_count`` / ``language`` from the existing
+            # record when this run did not return new values (re-ingest).
             self._document_repo.update(
                 document_id,
                 ingestion_status=DocumentIngestionStatus.INDEXED,

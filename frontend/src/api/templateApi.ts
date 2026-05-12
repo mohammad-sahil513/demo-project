@@ -1,3 +1,12 @@
+/**
+ * Template API — list, upload, compile-status, schema, fidelity, downloads.
+ *
+ * The backend distinguishes inbuilt templates (PDD / SDD / UAT) from
+ * custom uploads; both surface through `/api/templates/*`. The DTO
+ * mapper (`dtoToTemplate`) collapses status + type into the `is_custom`
+ * flag that the store consumes so views can decide between rendering
+ * inbuilt-style cards and full custom template controls.
+ */
 import client from './client'
 import type {
   TemplateDto,

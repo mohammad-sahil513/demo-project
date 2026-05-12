@@ -1,4 +1,44 @@
-"""Workflow executor skeleton for Phase 3."""
+"""Workflow executor — runs an end-to-end pipeline from INPUT to RENDER_EXPORT.
+
+This is the heart of the backend. Each public ``run_workflow`` invocation
+executes one workflow record through eight phases in order, persisting
+incremental state on the :class:`WorkflowRecord` after every phase and
+emitting Server-Sent Events via :class:`EventService` so the UI sees
+progress in real time.
+
+Phases (see :class:`core.constants.WorkflowPhase` and
+``docs/PIPELINE.md``):
+
+1. ``INPUT_PREPARATION``    Resolve document/template, build context.
+2. ``INGESTION``            Parse BRD, chunk, embed, upsert to AI Search
+                            (skipped if already ``INDEXED``).
+3. ``TEMPLATE_PREPARATION`` Load section plan and style map (inbuilt or
+                            compiled custom).
+4. ``SECTION_PLANNING``     Compute execution waves with dependencies.
+5. ``RETRIEVAL``            For each section, hybrid-search and package
+                            evidence chunks with citations.
+6. ``GENERATION``           Wave-parallel LLM generation (text, table,
+                            diagram); per-section retries on failure.
+7. ``ASSEMBLY_VALIDATION``  Stitch sections, normalize content, hygiene
+                            pass.
+8. ``RENDER_EXPORT``        Build the final DOCX/XLSX, integrity check,
+                            create :class:`OutputRecord`.
+
+Cross-cutting concerns implemented here:
+
+- **Cost tracking**  ``GenerationCostTracker`` plus retrieval/ingestion
+                     observability merge into a single per-workflow
+                     summary persisted on the record.
+- **Phase progress** ``PHASE_WEIGHTS`` drive the granular percentage
+                     the UI shows. Each phase yields incremental updates
+                     before the executor advances to the next.
+- **Error handling** Any unhandled exception transitions the run to
+                     ``FAILED`` with a structured error entry; per-section
+                     failures during GENERATION are captured as warnings
+                     so the rest of the document can still ship.
+- **Warnings**       Deduped via :func:`merge_workflow_warnings` so noisy
+                     phases (e.g. content hygiene) don't flood the UI.
+"""
 
 from __future__ import annotations
 

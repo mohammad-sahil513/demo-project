@@ -1,3 +1,15 @@
+"""Phase 7 (RETRIEVAL) tests: section retriever, evidence packager, cost merging.
+
+Covers:
+
+- :meth:`SectionRetriever.retrieve_for_section` selects a generated query
+  when the section's default is too short and falls back to the heading.
+- :class:`EvidencePackager` builds ``context_text`` plus a citations list
+  with stable ordering.
+- :func:`merge_retrieval_observability` adds retrieval LLM/embedding
+  spend to the cumulative workflow summary.
+"""
+
 from __future__ import annotations
 
 import asyncio

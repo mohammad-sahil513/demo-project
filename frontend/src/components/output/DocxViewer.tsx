@@ -1,3 +1,13 @@
+/**
+ * Markdown-backed preview of the assembled document.
+ *
+ * The Output page does *not* render the final DOCX/XLSX directly — that
+ * would require shipping a Word renderer. Instead each section's
+ * assembled markdown content is rendered with `react-markdown` plus
+ * `remark-gfm` so tables and task lists work. Diagram sections get the
+ * generated PNG embedded via the markdown image syntax — same image the
+ * exported document uses.
+ */
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useJobStore } from '../../store/useJobStore'
@@ -32,7 +42,8 @@ export function DocxViewer() {
     )
   }
 
-  if (!sectionContent) {
+  const trimmed = (sectionContent ?? '').trim()
+  if (!trimmed) {
     return (
       <div className="flex items-center justify-center h-full">
         <p className="font-body text-sm text-ey-muted">No content available.</p>
@@ -40,7 +51,7 @@ export function DocxViewer() {
     )
   }
 
-  const pages = sectionContent.split('<!-- PAGE_BREAK -->')
+  const pages = trimmed.split('<!-- PAGE_BREAK -->')
 
   return (
     <div className="bg-ey-canvas flex-1 overflow-y-auto py-10 px-6 animate-fade-in">

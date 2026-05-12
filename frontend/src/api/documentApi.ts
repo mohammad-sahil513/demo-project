@@ -1,3 +1,10 @@
+/**
+ * Document API — BRD uploads.
+ *
+ * Wraps `POST /api/documents/upload` (multipart). The shared axios
+ * client unwraps the envelope, so we receive the `DocumentUploadData`
+ * fields directly.
+ */
 import client from './client'
 import type { DocumentUploadData } from './types'
 

@@ -1,3 +1,16 @@
+/**
+ * Template preview page (route: `/templates/:templateId/preview`).
+ *
+ * Detail view for a single compiled template. Loads the metadata DTO,
+ * placeholder schema, validation status, and either:
+ *
+ * - The DOCX preview binary, rendered inline via `docx-preview` (in the
+ *   referenced `docxContainerRef` div), or
+ * - The XLSX HTML preview that the backend pre-renders.
+ *
+ * The {@link TemplatePreviewInfoPanel} shows schema / fidelity badges
+ * and a recompile button.
+ */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, AlertCircle, Loader2 } from 'lucide-react'

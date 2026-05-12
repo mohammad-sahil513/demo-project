@@ -1,4 +1,15 @@
-"""Merge section plan + generation results into a single ordered document."""
+"""Merge section plan + generation results into a single ordered document.
+
+The assembler is a deterministic, side-effect-free step: take the template's
+section plan (already ordered by ``execution_order``) and the dict of
+generation results keyed by ``section_id``, and produce an
+:class:`AssembledDocument` ready for export.
+
+Anything unexpected (missing generation result, missing diagram image,
+content that needed normalization) is recorded in ``warnings`` rather than
+raised — the workflow continues so the user gets a partial output and a
+clear explanation of what's missing.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -13,11 +24,15 @@ from modules.template.models import SectionDefinition
 
 @dataclass(frozen=True, slots=True)
 class AssemblyOutcome:
+    """Return value of :meth:`DocumentAssembler.assemble` — document + warnings."""
+
     document: AssembledDocument
     warnings: list[dict[str, object]] = field(default_factory=list)
 
 
 class DocumentAssembler:
+    """Stateless assembler. Construct once per process; safe to reuse."""
+
     def assemble(
         self,
         *,
@@ -27,8 +42,13 @@ class DocumentAssembler:
         section_generation_results: dict[str, dict[str, object]],
         export_mode: str = "final",
     ) -> AssemblyOutcome:
+        """Materialize an :class:`AssembledDocument` from plan + results."""
+        # The section plan may have been re-ordered by an upstream filter;
+        # re-sort to make this step independent of the input order.
         ordered = sorted(section_plan, key=lambda s: s.execution_order)
         stem = Path(document_filename).stem
+        # Document title pattern is read by the UI list; do not change without
+        # updating frontend label assumptions.
         title = f"{stem} — {doc_type}"
 
         sections: list[AssembledSection] = []
@@ -121,8 +141,12 @@ class DocumentAssembler:
         ordered_sections: list[SectionDefinition],
         current_index: int,
     ) -> list[str]:
-        """
-        Collect titles of child sections nested under the current section until the hierarchy closes.
+        """Collect titles of child sections nested under the current section.
+
+        Walks forward until we hit a section at the same level or shallower
+        (i.e. a sibling or parent), then stops. The titles list is used by
+        the content normalizer to detect duplicated child headings inside
+        the LLM's prose output.
 
         Example:
         current = level 1

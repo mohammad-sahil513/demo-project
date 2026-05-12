@@ -1,4 +1,17 @@
-"""Shared template models for inbuilt and custom pipelines."""
+"""Shared template models for inbuilt and custom pipelines.
+
+These are the workhorses passed between the template, generation, and
+export phases. They describe the visual style (``StyleMap``, ``TableStyle``,
+``PageSetup``), the parsed structure of a custom template (``DocumentSkeleton``,
+``ExtractedHeading``), and the per-section generation contract
+(``SectionDefinition``).
+
+A single ``SectionDefinition`` collects everything the generation
+orchestrator needs to produce one section: ``output_type``,
+``prompt_selector``, retrieval/generation hints, dependencies, and so on.
+Add new fields here when extending generation behavior — every prompt
+mapping in :mod:`modules.generation.context` reads from this object.
+"""
 
 from __future__ import annotations
 
@@ -90,6 +103,17 @@ class DocumentSkeleton(BaseModel):
 
 
 class SectionDefinition(BaseModel):
+    """Per-section generation contract used by every downstream phase.
+
+    Key fields:
+    - ``execution_order``  sort key used by ``compute_execution_waves``.
+    - ``output_type``      ``"text"`` | ``"table"`` | ``"diagram"``.
+    - ``prompt_selector``  picks the YAML under ``prompts/generation/<type>/``.
+    - ``content_mode``     ``"generate"`` (default), ``"skip"``, ``"heading_only"``.
+    - ``dependencies``     other ``section_id`` values that must complete first.
+    - ``is_complex``       routes the section to the stronger LLM tier.
+    """
+
     model_config = ConfigDict(extra="ignore")
 
     section_id: str

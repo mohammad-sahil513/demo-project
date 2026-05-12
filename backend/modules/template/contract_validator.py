@@ -1,4 +1,19 @@
-"""Validation for template placeholder schema."""
+"""Validation for the compiled template placeholder schema.
+
+Runs at the end of the template compile step. The output is two lists of
+issue dicts (errors and warnings); both are persisted on the
+:class:`TemplateRecord` and surfaced in the UI. Errors block compilation;
+warnings are advisory and do not.
+
+Checks performed:
+- Placeholder IDs are non-empty and unique.
+- DOCX templates carry relationship anchors (so media integrity is
+  enforceable downstream).
+- XLSX templates carry at least one sheet anchor.
+- An empty placeholder list yields a single ``placeholders_not_found``
+  warning rather than an error — some inbuilt templates intentionally use
+  the heading-driven path with no placeholders.
+"""
 
 from __future__ import annotations
 

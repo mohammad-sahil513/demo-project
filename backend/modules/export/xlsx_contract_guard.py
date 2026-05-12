@@ -1,4 +1,10 @@
-"""Contract checks for XLSX strict rendering."""
+"""Contract checks for XLSX strict rendering.
+
+Cheap gate that surfaces a single warning when an XLSX template is being
+rendered without a compiled placeholder schema. The warning is the signal
+that strict mode is degraded to legacy fill; the renderer still produces
+output but the integrity layer cannot enforce a tighter contract.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,16 @@
-"""LLM markdown table generation."""
+"""LLM markdown table generation.
+
+Sections marked ``output_type="table"`` are emitted by the LLM as a GFM
+markdown pipe table. The model occasionally:
+
+- wraps the table in decorative markdown (``**_| ... |_**``),
+- skips the ``| --- | --- |`` separator row,
+- emits trailing prose after the table.
+
+This module's :func:`_normalize_markdown_table` strips wrappers, ensures
+the separator row exists, and discards any non-table lines that follow.
+The export DOCX/XLSX builders parse the cleaned GFM markdown.
+"""
 from __future__ import annotations
 
 import re
@@ -109,6 +121,8 @@ def _normalize_markdown_table(text: str) -> str:
 
 
 class TableSectionGenerator:
+    """Generates GFM markdown tables for ``output_type="table"`` sections."""
+
     def __init__(self, sk_adapter: AzureSKAdapter, prompt_loader: GenerationPromptLoader | None = None) -> None:
         self._sk = sk_adapter
         self._prompts = prompt_loader or GenerationPromptLoader()
@@ -117,6 +131,8 @@ class TableSectionGenerator:
         return self._sk.is_configured()
 
     def _task_for_section(self, section: SectionDefinition) -> str:
+        # Complex tables (e.g. UAT test cases with cross-references) get the
+        # stronger model + higher reasoning effort.
         if section.is_complex:
             return "complex_section"
         return "table_generation"
@@ -131,7 +147,7 @@ class TableSectionGenerator:
         parent_title: str | None = None,
         child_titles: list[str] | None = None,
     ) -> dict[str, Any]:
-        template = self._prompts.load_template("table", section.prompt_selector)
+        template = self._prompts.load_template_with_shared_policy("table", section.prompt_selector)
         evidence_context = evidence_text_from_retrieval(retrieval_payload)
         mapping = build_prompt_mapping(
             section,

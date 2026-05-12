@@ -1,4 +1,17 @@
-"""Workflow service for workflow run persistence and guards."""
+"""Workflow service — workflow run creation, lookup, and update guards.
+
+This service is intentionally thin. The heavy lifting happens in
+:class:`WorkflowExecutor`; the service is what the API uses to:
+
+- Validate the document/template pair on creation and reject mismatches
+  (e.g. a PDD template on a UAT document).
+- Persist a ``PENDING`` workflow record so the SSE endpoint has an ID
+  to subscribe against before background execution begins.
+- Resolve inbuilt template IDs to synthetic :class:`TemplateRecord`
+  values — inbuilt templates have no on-disk record because they ship
+  as Python data.
+- Provide bulk reads (``list_all``) for the UI's history view.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,22 @@
-"""DOCX package integrity checks for strict template fidelity."""
+"""DOCX package integrity + surface fidelity checks for custom templates.
+
+Two responsibilities live here:
+
+- **Package integrity**  After the filler writes the output, compare the
+  original template zip with the output zip. Confirm that header/footer
+  parts are intact, media files are present and untouched, content
+  controls were not stripped, and the relationship graph is consistent.
+
+- **Surface fidelity**   Scan the rendered ``document.xml`` for leftover
+  placeholder tokens (``{{ ... }}``). Tokens are only allowed inside
+  declared placeholder locations from the template schema. Anywhere else
+  is a fidelity violation — the renderer treats this as a blocking error
+  in strict mode and a warning in fallback mode.
+
+The check functions return a list of warning/error dicts that the
+:class:`ExportRenderer` merges into the workflow's
+``export_warnings`` collection.
+"""
 
 from __future__ import annotations
 
@@ -294,6 +312,80 @@ def check_docx_integrity(
                     "message": "Detected non-placeholder mutation in word/document.xml.",
                 }
             )
+
+    return warnings
+
+
+def _count_word_tables(xml_bytes: bytes | None) -> int:
+    if not xml_bytes:
+        return 0
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return 0
+    return sum(1 for el in root.iter() if isinstance(el.tag, str) and el.tag.endswith("}tbl"))
+
+
+def _document_xml_has_toc_field(xml_bytes: bytes | None) -> bool:
+    if not xml_bytes:
+        return False
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return False
+    for el in root.iter():
+        if not isinstance(el.tag, str):
+            continue
+        if el.tag.endswith("}instrText") and (el.text or "").strip().upper().startswith("TOC"):
+            return True
+    return False
+
+
+def check_docx_surface_fidelity(
+    *,
+    template_path: Path,
+    output_path: Path,
+    placeholder_schema: dict[str, object] | None = None,
+) -> list[dict[str, object]]:
+    """
+    Generic structural checks: table count regression, TOC field loss in document body.
+
+    Honors optional placeholder_schema flag skip_surface_fidelity_checks (truthy) to disable.
+    """
+    warnings: list[dict[str, object]] = []
+    schema = placeholder_schema or {}
+    if bool(schema.get("skip_surface_fidelity_checks")):
+        return warnings
+
+    before = _read_zip_map(template_path)
+    after = _read_zip_map(output_path)
+    bt = before.get("word/document.xml")
+    at = after.get("word/document.xml")
+
+    t_tables = _count_word_tables(bt)
+    o_tables = _count_word_tables(at)
+    if t_tables and o_tables < t_tables:
+        warnings.append(
+            {
+                "code": "docx_table_count_regression",
+                "severity": "warning",
+                "message": (
+                    f"Output has fewer word tables ({o_tables}) than template ({t_tables}); "
+                    "template tables may have been removed during fill."
+                ),
+                "template_tables": t_tables,
+                "output_tables": o_tables,
+            }
+        )
+
+    if bt and _document_xml_has_toc_field(bt) and at and not _document_xml_has_toc_field(at):
+        warnings.append(
+            {
+                "code": "docx_toc_field_missing",
+                "severity": "warning",
+                "message": "Template contained a TOC field in document.xml but output did not.",
+            }
+        )
 
     return warnings
 

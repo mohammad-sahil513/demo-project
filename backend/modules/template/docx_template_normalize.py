@@ -1,4 +1,17 @@
-"""Optional DOCX normalization on compile (conservative table row trim)."""
+"""Optional DOCX normalization on compile (conservative table row trim).
+
+Many uploaded templates carry filler/example rows under their tables that
+the author meant only as visual guidance. When the renderer fills those
+tables it appends rows for actual content, so the extra filler rows leak
+into the exported document. To keep the surface clean, on compile we
+conservatively trim every ``w:tbl`` to at most two rows — header + one
+canonical body row.
+
+This step is best-effort: any OOXML parsing or zip rewrite failure is
+captured as a warning and the original file is left untouched. The
+warnings are persisted on the :class:`TemplateRecord` so authors can see
+what was changed.
+"""
 
 from __future__ import annotations
 

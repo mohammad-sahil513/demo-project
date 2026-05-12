@@ -1,3 +1,15 @@
+/**
+ * Workflow API — create runs, poll status, subscribe to SSE.
+ *
+ * `subscribeToWorkflowEvents` opens an `EventSource` against the backend
+ * `/workflow-runs/{id}/events` stream. The browser handles reconnects,
+ * but we still expose `close()` so callers can tear down the stream on
+ * unmount (and prevent terminal events from being processed twice).
+ *
+ * Non-JSON payloads (server heartbeats) are silently ignored — the
+ * backend emits them as comment lines, but some intermediaries reshape
+ * them into empty data messages.
+ */
 import client, { baseURL } from './client'
 import type { WorkflowCreateData, WorkflowStatusData } from './types'
 

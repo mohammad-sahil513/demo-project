@@ -1,4 +1,11 @@
-"""Merge extracted template metadata into compiled section plans."""
+"""Merge extracted template metadata into compiled section plans.
+
+XLSX templates carry their schema as worksheet header rows. After the
+template is extracted and classified, this helper copies each sheet's
+detected header row onto the matching :class:`SectionDefinition` as
+``table_headers`` (and ``required_fields`` when not already set). The match
+is by normalized title — whitespace-collapsed and trimmed.
+"""
 
 from __future__ import annotations
 

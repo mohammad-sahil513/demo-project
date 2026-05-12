@@ -1,4 +1,22 @@
-"""SSE event route."""
+"""Server-Sent Events stream for workflow progress.
+
+``GET /api/workflow-runs/{workflow_run_id}/events``
+
+The frontend Progress page opens an ``EventSource`` against this URL to
+watch phase transitions in real time. Behavior:
+
+- Subscribes to :class:`EventService` and yields each event as an SSE
+  ``data:`` line containing the JSON payload.
+- Sends a ``: heartbeat`` comment every 30 seconds so HTTP intermediaries
+  (load balancers, proxies) do not idle the connection.
+- Closes the stream automatically when a terminal event arrives —
+  ``workflow.completed`` or ``workflow.failed``.
+- Always unsubscribes in the ``finally`` block so a dropped client does
+  not leak a queue.
+
+Response headers disable buffering and caching to keep events flowing as
+soon as the executor produces them.
+"""
 
 from __future__ import annotations
 

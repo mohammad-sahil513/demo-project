@@ -1,4 +1,4 @@
-"""Inbuilt style map for UAT."""
+"""Inbuilt style map for UAT — landscape with emerald table headers for wide test grids."""
 
 from __future__ import annotations
 

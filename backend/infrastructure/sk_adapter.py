@@ -1,4 +1,25 @@
-"""Azure OpenAI adapter (task-routed)."""
+"""Azure OpenAI adapter (task-routed chat completions + embeddings).
+
+This module is the only place in the backend that talks HTTP to Azure
+OpenAI. It implements three concerns that the rest of the system depends on:
+
+1. **Task routing** — callers pass a ``task`` string (e.g. ``"text_generation"``)
+   and the adapter picks the right model, reasoning effort, and completion
+   budget from the tables in :mod:`core.constants`. This keeps cost / quality
+   choices in one place.
+2. **Retries and timeouts** — transport failures retry once;
+   :class:`httpx.HTTPStatusError` is non-retryable (we surface 4xx/5xx
+   immediately with a body preview so the cause is obvious in logs).
+3. **Empty-response recovery** — Azure OpenAI sometimes spends the whole
+   completion budget on internal reasoning, returning no visible text. The
+   adapter detects this, re-prompts with a stricter "answer only" suffix and
+   a smaller budget, and only then surfaces ``MODEL_RESPONSE_TRUNCATED``.
+
+JSON responses go through :meth:`AzureSKAdapter._coerce_json_candidate` which
+strips fences, smart quotes, and trailing commas — small models occasionally
+emit those even when asked for raw JSON, and we'd rather tolerate them than
+fail a workflow at the last step.
+"""
 
 from __future__ import annotations
 
@@ -21,20 +42,32 @@ from core.token_count import count_tokens
 
 logger = logging.getLogger(__name__)
 
+# Total timeout governs the whole request including any server-side wait
+# (reasoning models can take minutes on hard prompts).
 AZURE_OPENAI_TIMEOUT_SECONDS = 180.0
+# Connect timeout is much shorter — TCP/TLS to Azure should complete in seconds.
 AZURE_OPENAI_CONNECT_TIMEOUT_SECONDS = 15.0
 AZURE_OPENAI_WRITE_TIMEOUT_SECONDS = 30.0
+# Retries are intentionally low; reasoning models are slow and re-running a
+# 2-minute call adds little value when the underlying issue is the prompt.
 AZURE_OPENAI_RETRIES = 2
 
 
 @dataclass(frozen=True, slots=True)
 class EmbeddingUsageResult:
+    """Embedding vector plus the prompt-token count for cost tracking."""
+
     embedding: list[float]
     prompt_tokens: int
 
 
 class AzureSKAdapter:
-    """Task-routed LLM/embedding adapter for Azure OpenAI."""
+    """Task-routed LLM/embedding adapter for Azure OpenAI.
+
+    Construction parameters are all optional — defaults are read from
+    :data:`core.config.settings` so the adapter can be instantiated without
+    arguments in production while tests can inject overrides.
+    """
 
     def __init__(
         self,
@@ -54,16 +87,26 @@ class AzureSKAdapter:
         self._embedding_deployment = embedding_deployment or settings.azure_openai_embedding_deployment
 
     def is_configured(self) -> bool:
+        """``True`` if endpoint + api key are both set (sanity check for callers)."""
         return bool(self._endpoint and self._api_key)
 
     async def invoke_text(self, prompt: str, *, task: str = "default", cost_tracker=None) -> str:
-        """
-        Invoke a chat/completions model and return plain text.
+        """Invoke a chat/completions model and return plain text.
 
         Behavior:
-        - retries transport failures in _post_chat_completion()
-        - retries empty assistant content once with a stricter prompt and lower reasoning effort
-        - reduces completion budget on retry to avoid spending everything in reasoning
+        - retries transport failures in ``_post_chat_completion``;
+        - retries empty assistant content once with a stricter prompt and
+          lower reasoning effort;
+        - reduces the completion budget on retry to discourage long chains
+          of internal reasoning that consume the whole budget.
+
+        Raises
+        ------
+        GenerationException
+            ``MODEL_NOT_CONFIGURED`` if the adapter has no endpoint/key.
+            ``MODEL_RESPONSE_TRUNCATED`` if both attempts hit ``finish_reason="length"``
+            with no visible content.
+            ``INVALID_JSON_RESPONSE`` for any other empty-response failure.
         """
         if not self.is_configured():
             raise GenerationException("Azure OpenAI is not configured.", code="MODEL_NOT_CONFIGURED")
@@ -137,8 +180,12 @@ class AzureSKAdapter:
         task: str,
         cost_tracker: Any | None = None,
     ) -> dict[str, Any]:
-        """
-        Invoke a chat model and parse the returned text as JSON object.
+        """Invoke a chat model and parse the returned text as a JSON object.
+
+        Defers to :meth:`invoke_text` then runs :meth:`_parse_json_payload`
+        which tolerates fenced code blocks, smart quotes, and trailing commas.
+        Raises ``JSON_OBJECT_REQUIRED`` if the model returns a JSON array or
+        primitive (callers always expect a top-level object).
         """
         text = await self.invoke_text(prompt, task=task, cost_tracker=cost_tracker)
 
@@ -158,12 +205,15 @@ class AzureSKAdapter:
         return parsed
 
     async def generate_embedding(self, text: str) -> list[float]:
+        """Convenience wrapper that discards usage data — use when cost tracking is handled elsewhere."""
         result = await self.generate_embedding_with_usage(text)
         return result.embedding
 
     async def generate_embedding_with_usage(self, text: str) -> EmbeddingUsageResult:
-        """
-        Generate an embedding vector and return vector + prompt token usage.
+        """Generate an embedding vector and return vector + prompt-token usage.
+
+        Falls back to :func:`core.token_count.count_tokens` when Azure's
+        usage block is missing so cost ledgers always get *some* value.
         """
         if not self.is_configured():
             raise GenerationException("Azure OpenAI is not configured.", code="MODEL_NOT_CONFIGURED")
@@ -318,8 +368,11 @@ class AzureSKAdapter:
         )
 
     def _deployment_for_model(self, model_alias: str) -> str:
-        """
-        Resolve model alias or deployment-like value into an Azure deployment name.
+        """Resolve a model alias or deployment-like value into an Azure deployment name.
+
+        Accepts canonical aliases (``gpt-5``, ``gpt-5-mini``) as well as
+        deployment names already set in ``TASK_TO_MODEL``. Raises
+        ``MODEL_NOT_CONFIGURED`` when the matching env var is empty.
         """
         normalized = self._normalize_model_alias(model_alias)
 
@@ -349,12 +402,12 @@ class AzureSKAdapter:
         )
 
     def _resolve_model_for_task(self, task: str | None) -> str:
-        """
-        Resolve which model alias to use for a given task.
+        """Resolve which model alias to use for a given task.
+
         Strategy:
-        1. Use TASK_TO_MODEL if defined.
-        2. Prefer gpt5mini.
-        3. Fallback to gpt5.
+        1. Use ``TASK_TO_MODEL`` if defined.
+        2. Prefer ``gpt-5-mini`` (cheaper, fast).
+        3. Fall back to ``gpt-5`` (only when mini is unavailable).
         """
         normalized_task = (task or "").strip().lower()
         model_alias = TASK_TO_MODEL.get(normalized_task)
@@ -377,13 +430,15 @@ class AzureSKAdapter:
         return re.sub(r"[\s_\-]", "", value.strip().lower())
 
     def _extract_text_from_chat_response(self, body: dict) -> str:
-        """
-        Extract assistant text from a chat completion response body.
+        """Extract assistant text from a chat-completion response body.
 
-        Supports:
-        - choices[0].message.content as plain string
-        - choices[0].message.content as structured list of parts
-        - fallback to choices[0].text
+        Supports the three shapes Azure OpenAI has returned across API versions:
+        - ``choices[0].message.content`` as plain string (current),
+        - ``choices[0].message.content`` as a structured list of content parts,
+        - legacy ``choices[0].text`` fallback.
+
+        Returns ``""`` when the response is malformed; callers decide whether
+        empty content is fatal (see the empty-response retry in :meth:`invoke_text`).
         """
         if not isinstance(body, dict):
             return ""
@@ -442,14 +497,15 @@ class AzureSKAdapter:
         )
 
     def _parse_json_payload(self, text: str) -> dict[str, Any]:
-        """
-        Parse model output into a JSON object.
+        """Parse model output into a JSON object.
 
-        Tolerates:
-        - fenced code blocks
-        - leading/trailing explanatory text
-        - smart quotes
-        - trailing commas before } or ]
+        Tolerates four common model misbehaviors when emitting JSON:
+        - fenced code blocks (``\u200b```json ... \u200b```);
+        - leading/trailing explanatory text wrapped around the JSON body;
+        - smart quotes (left/right double + single quotes);
+        - trailing commas before ``}`` or ``]``.
+
+        Raises ``INVALID_JSON_RESPONSE`` if no valid object can be extracted.
         """
         raw = (text or "").strip()
         if not raw:
@@ -478,8 +534,11 @@ class AzureSKAdapter:
         return parsed
 
     def _coerce_json_candidate(self, text: str) -> str:
-        """
-        Convert noisy model output into the most likely JSON candidate.
+        """Convert noisy model output into the most likely JSON candidate.
+
+        Order matters here: we replace smart quotes first (so fence/regex
+        matching sees ASCII quotes), then unwrap markdown fences, fall back
+        to a balanced-brace scan, and finally strip trailing commas.
         """
         candidate = text.strip().lstrip("\ufeff")
 
@@ -506,8 +565,11 @@ class AzureSKAdapter:
         return candidate
 
     def _extract_first_json_block(self, text: str) -> str | None:
-        """
-        Find the first balanced JSON object or array in free-form text.
+        """Find the first balanced JSON object or array in free-form text.
+
+        Implements a small state machine that tracks string context so we
+        don't count braces that appear inside string literals. Returns
+        ``None`` if no balanced block is found.
         """
         starts = []
         obj_start = text.find("{")
@@ -562,11 +624,15 @@ class AzureSKAdapter:
         prompt: str,
         output_text: str,
     ) -> None:
-        """
-        Best-effort usage tracking.
+        """Best-effort usage tracking.
+
+        Supports four tracker shapes the rest of the codebase uses
+        (``track_call`` method, plain dict, plain list, or ``add_usage``
+        method). Failures are swallowed and logged — token accounting is
+        never allowed to crash the workflow.
 
         Safe no-op if:
-        - cost_tracker is None
+        - ``cost_tracker`` is ``None``
         - usage block is missing
         - tracker shape is unsupported
         """
@@ -637,6 +703,12 @@ class AzureSKAdapter:
             logger.exception("sk_adapter.track_usage.failed task=%s model=%s", task, model_alias)
 
     def _make_strict_retry_prompt(self, prompt: str, *, task: str) -> str:
+        """Append a task-specific "answer only" suffix for the retry attempt.
+
+        The suffix nudges the model to stop spending budget on reasoning and
+        emit the final answer in the expected format. We branch by task so
+        the suffix matches what the caller will actually try to parse.
+        """
         if task == "template_classification":
             suffix = (
                 "\n\nIMPORTANT:\n"
@@ -663,10 +735,15 @@ class AzureSKAdapter:
         return f"{prompt.rstrip()}\n{suffix}"
 
     def _retry_completion_budget(self, task: str) -> int | None:
+        """Return a smaller completion budget for the empty-response retry.
+
+        We trim to 60% of the original budget and floor at 400 tokens — the
+        smaller budget pressures the model to emit visible content rather
+        than continuing to expand its internal reasoning.
+        """
         original = TASK_TO_MAX_COMPLETION_TOKENS.get(task)
         if not original:
             return None
 
-        # Retry with a smaller budget to discourage long internal reasoning chains.
         reduced = max(400, int(original * 0.6))
         return reduced

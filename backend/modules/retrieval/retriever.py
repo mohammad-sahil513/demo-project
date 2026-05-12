@@ -1,4 +1,17 @@
-"""Section-level adaptive retrieval over Azure AI Search."""
+"""Section-level adaptive retrieval over Azure AI Search.
+
+For each template section we want a small set of high-quality chunks from
+the BRD. The retriever:
+
+1. Picks a query — uses the section's ``retrieval_query`` directly when it
+   has at least :data:`MIN_DIRECT_QUERY_WORDS` words, otherwise asks the LLM
+   to synthesize one from the section title/description/hints.
+2. Embeds the query (Azure OpenAI ``text-embedding-3-large``).
+3. Runs a *hybrid* search (keyword + vector) on Azure AI Search filtered to
+   the workflow's ``document_id``.
+
+The result is the raw chunk list plus the embedding-USD cost for cost rollups.
+"""
 
 from __future__ import annotations
 
@@ -14,11 +27,15 @@ from infrastructure.sk_adapter import AzureSKAdapter
 from modules.template.models import SectionDefinition
 from modules.observability.cost_rollup import merge_full_cost_summary
 
+# Below this word count the section's hard-coded retrieval query is too thin
+# to be useful — we ask the LLM to generate a better one instead.
 MIN_DIRECT_QUERY_WORDS = 4
 logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class RetrievedChunk:
+    """One chunk returned by Azure Search, with the relevance score attached."""
+
     chunk_id: str
     text: str
     section_heading: str | None
@@ -51,6 +68,7 @@ class SectionRetriever:
         document_id: str,
         cost_tracker: object | None = None,
     ) -> tuple[list[RetrievedChunk], float]:
+        """Run one hybrid search for ``section`` and return chunks + USD cost."""
         started_at = perf_counter()
 
         query_text = await self._resolve_query(section, cost_tracker=cost_tracker)
@@ -102,10 +120,15 @@ class SectionRetriever:
         *,
         cost_tracker: object | None = None,
     ) -> str:
+        """Pick the best query string for ``section`` (direct, generated, fallback)."""
         direct_query = (section.retrieval_query or "").strip()
+        # Use the configured query verbatim when it's substantive.
         if len(direct_query.split()) >= MIN_DIRECT_QUERY_WORDS:
             return direct_query
 
+        # Otherwise ask the LLM to synthesize a richer query. The
+        # ``retrieval_query_generation`` task budget is intentionally small
+        # (see TASK_TO_MAX_COMPLETION_TOKENS) — we want one line back.
         prompt = self._build_query_generation_prompt(section)
         generated = (
             await self._sk_adapter.invoke_text(
@@ -116,6 +139,8 @@ class SectionRetriever:
         ).strip()
         if len(generated.split()) >= MIN_DIRECT_QUERY_WORDS:
             return generated
+        # Final fall-backs: the original direct query (even if thin) or a
+        # concatenation of the section's title + description as a last resort.
         if direct_query:
             return direct_query
         return f"{section.title} {section.description}".strip()
@@ -158,6 +183,11 @@ def merge_retrieval_observability(
     total_tokens_out: int = 0,
     total_llm_calls: int = 0,
 ) -> dict[str, object]:
+    """Merge retrieval-phase metrics into a workflow's observability dict.
+
+    Token / call counts are *added* to whatever was in ``base`` so re-runs and
+    partial retrieves keep cumulative totals correct.
+    """
     return merge_full_cost_summary(
         base,
         llm_cost_usd=llm_cost_usd,

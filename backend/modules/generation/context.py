@@ -1,10 +1,19 @@
-"""Shared prompt context builders for generation."""
+"""Shared prompt context builders for generation.
+
+Every section generator (text/table/diagram) uses :func:`build_prompt_mapping`
+to assemble the variable substitutions that fill the prompt YAML templates.
+Keeping all formatting logic in one place means a new section field is added
+exactly once and immediately visible in every prompt.
+"""
 from __future__ import annotations
 
 from collections.abc import Iterable
 
 from modules.template.models import SectionDefinition
 
+# Stand-in inserted into prompts when retrieval returned no chunks. We
+# explicitly tell the model to lean on the section title/description instead
+# of hallucinating sources.
 _NO_EVIDENCE_TEXT = (
     "No retrieved evidence is available for this section. "
     "Rely on the section title and description only."
@@ -29,6 +38,7 @@ def evidence_text_from_retrieval(
     *,
     max_chars: int | None = None,
 ) -> str:
+    """Extract the joined source text from a retrieval payload, with optional truncation."""
     if not payload:
         return _NO_EVIDENCE_TEXT
 
@@ -97,6 +107,13 @@ def build_prompt_mapping(
     parent_section_title: str = "",
     child_section_titles: Iterable[str] | None = None,
 ) -> dict[str, str]:
+    """Return the ``{placeholder: value}`` mapping consumed by the prompt YAML templates.
+
+    The mapping keys must match the ``{placeholder}`` tokens in the YAML.
+    Add a new mapping key here and the existing template renderer
+    (:meth:`GenerationPromptLoader.render_template`) will pick it up
+    automatically.
+    """
     child_titles_text = format_child_titles(child_section_titles)
     section_role = infer_section_role(
         parent_title=parent_section_title,

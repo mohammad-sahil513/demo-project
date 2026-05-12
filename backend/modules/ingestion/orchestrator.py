@@ -1,4 +1,12 @@
-"""Parse -> chunk -> index ingestion pipeline."""
+"""Parse -> chunk -> index ingestion pipeline.
+
+The orchestrator is the single entry point used by the workflow executor
+when ingestion needs to run for a document. It emits three SSE events as
+each sub-phase finishes so the UI can render granular progress.
+
+The decision *whether* to run is owned by :class:`IngestionCoordinator`
+(ingest-once policy); this class only knows how to ingest.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +21,8 @@ from services.event_service import EventService
 
 
 class IngestionOrchestrator:
+    """Runs parse -> chunk -> index for a single document, with SSE events."""
+
     def __init__(
         self,
         parser: DocumentParser,
@@ -26,6 +36,7 @@ class IngestionOrchestrator:
         self._event_service = event_service
 
     def is_configured(self) -> bool:
+        """Both Document Intelligence and the indexer must be configured."""
         return self._parser.is_configured() and self._indexer.is_configured()
 
     async def run(
@@ -36,6 +47,8 @@ class IngestionOrchestrator:
         file_path: Path,
         content_type: str,
     ) -> IngestionRunResult:
+        """Execute the full ingestion pipeline for a single document."""
+        # --- Parse ------------------------------------------------------
         parsed = await self._parser.parse(file_path, content_type=content_type)
         await self._event_service.emit(
             workflow_run_id,
@@ -43,6 +56,7 @@ class IngestionOrchestrator:
             {"pages": parsed.page_count, "language": parsed.language},
         )
 
+        # --- Chunk ------------------------------------------------------
         chunks = self._chunker.chunk(
             document_id=document_id,
             workflow_run_id=workflow_run_id,
@@ -54,6 +68,7 @@ class IngestionOrchestrator:
             {"chunk_count": len(chunks)},
         )
 
+        # --- Index ------------------------------------------------------
         indexed_count, embedding_cost = await self._indexer.index_chunks(chunks)
         await self._event_service.emit(
             workflow_run_id,

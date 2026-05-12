@@ -1,3 +1,11 @@
+"""Phase 2 API stubs: smoke-test every public endpoint shape and JSON envelope.
+
+Each test hits an endpoint with a deterministic stubbed service and asserts
+that the response matches the standard envelope (``success/message/data``)
+and the documented status code. The stubs intentionally bypass the real
+services so this suite stays fast and isolated.
+"""
+
 from __future__ import annotations
 
 import time

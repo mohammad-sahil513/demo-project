@@ -1,4 +1,37 @@
-"""Template routes."""
+"""Template routes — custom template uploads, compile lifecycle, and previews.
+
+Endpoints (all under ``/api/templates``):
+
+- ``POST   /upload``                    Multipart upload + dispatch async
+                                        compile. Returns ``ACCEPTED`` with
+                                        the COMPILING record.
+- ``GET    ""``                         List all templates (inbuilt are
+                                        served separately by the frontend
+                                        constants — only customs live in
+                                        this repository).
+- ``GET    /{id}``                      Full record. Returns ``202`` with
+                                        a minimal payload while the
+                                        template is still compiling so
+                                        the UI can poll without a 404.
+- ``GET    /{id}/compile-status``       Just the status + last error,
+                                        used by the templates page poll.
+- ``GET    /{id}/schema``               Compiled placeholder schema.
+- ``POST   /{id}/validate``             Re-extract and validate the
+                                        schema on demand.
+- ``PATCH  /{id}/bindings``             Replace the section -> placeholder
+                                        binding map.
+- ``POST   /{id}/recompile``            Reset to COMPILING and re-run.
+- ``GET    /{id}/fidelity-report``      Fidelity issues and summary;
+                                        ``?refresh=true`` re-runs the
+                                        probe.
+- ``GET    /{id}/download``             Original uploaded file.
+- ``GET    /{id}/preview-binary``       Generated DOCX preview file.
+- ``GET    /{id}/preview-html``         XLSX-only HTML preview.
+- ``DELETE /{id}``                      Remove the record and on-disk files.
+
+Validation note: PDD/SDD templates must be ``.docx`` and UAT must be
+``.xlsx``. Anything else fails fast at upload with a 400.
+"""
 
 from __future__ import annotations
 

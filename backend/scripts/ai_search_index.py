@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import sys
@@ -213,28 +214,74 @@ def get_index(index_name: str) -> Dict[str, Any]:
     return request("GET", f"/indexes/{index_name}", [200])
 
 
+def index_exists(index_name: str) -> bool:
+    names = list_indexes()
+    return index_name in names
+
+
+def create_index_if_missing(index_name: str) -> None:
+    if index_exists(index_name):
+        print(f"\nIndex '{index_name}' already exists. Nothing to create.")
+        return
+    create_index(index_name)
+
+
+def show_index_summary(index_name: str) -> None:
+    print("\nFetching index for confirmation...")
+    created = get_index(index_name)
+    print(
+        json.dumps(
+            {
+                "name": created.get("name"),
+                "field_count": len(created.get("fields", [])),
+                "vectorSearch": created.get("vectorSearch", {}),
+            },
+            indent=2,
+        )
+    )
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Azure AI Search index lifecycle helper.")
+    parser.add_argument(
+        "action",
+        choices=["list", "create-if-missing", "delete-if-exists", "recreate"],
+        help="Index lifecycle action to execute.",
+    )
+    parser.add_argument(
+        "--index-name",
+        default=INDEX_NAME,
+        help=f"Override index name (default: {INDEX_NAME})",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
+    index_name = args.index_name.strip() or INDEX_NAME
     require_config()
 
-    print("=== Azure AI Search Recreate Index ===")
+    print("=== Azure AI Search Index Manager ===")
     print(f"Endpoint          : {ENDPOINT}")
-    print(f"Index name        : {INDEX_NAME}")
+    print(f"Index name        : {index_name}")
     print(f"API version       : {API_VERSION}")
     print(f"Vector dimensions : {VECTOR_DIMENSIONS}")
+    print(f"Action            : {args.action}")
 
-    delete_index_if_exists(INDEX_NAME)
-    create_index(INDEX_NAME)
+    if args.action == "list":
+        list_indexes()
+        print("\nDone.")
+        return
 
-    print("\nFetching created index for confirmation...")
-    created = get_index(INDEX_NAME)
-    print(json.dumps(
-        {
-            "name": created.get("name"),
-            "field_count": len(created.get("fields", [])),
-            "vectorSearch": created.get("vectorSearch", {}),
-        },
-        indent=2
-    ))
+    if args.action == "create-if-missing":
+        create_index_if_missing(index_name)
+        show_index_summary(index_name)
+    elif args.action == "delete-if-exists":
+        delete_index_if_exists(index_name)
+    elif args.action == "recreate":
+        delete_index_if_exists(index_name)
+        create_index(index_name)
+        show_index_summary(index_name)
 
     print("\nFinal index list:")
     list_indexes()

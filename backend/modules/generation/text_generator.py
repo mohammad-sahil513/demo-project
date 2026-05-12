@@ -1,4 +1,22 @@
-"""LLM text section generation."""
+"""LLM text section generation.
+
+For each ``output_type="text"`` section, this generator:
+
+1. Loads the appropriate prompt YAML (selector-aware) and prepends the
+   shared deliverable policy fragment.
+2. Builds the prompt mapping via
+   :func:`modules.generation.context.build_prompt_mapping`.
+3. Calls Azure OpenAI through the SK adapter (``text_generation`` task
+   or ``complex_section`` for sections marked ``is_complex``).
+4. Post-processes the raw text — strips meta lead-ins, decorative
+   wrappers, oversized parent bullet lists, and duplicate paragraphs.
+
+Note: there is intentional overlap between the post-processing here and
+``modules.assembly.normalizer``. The generator's pass keeps the workflow's
+``section_generation_results`` clean; the assembler runs again on the
+final document to catch anything that survived (and to apply rules that
+depend on section ordering, like trimming at the next child heading).
+"""
 from __future__ import annotations
 
 import re
@@ -149,6 +167,8 @@ def _postprocess_text_output(
 
 
 class TextSectionGenerator:
+    """Generates prose section content. Stateless; safe to share across sections."""
+
     def __init__(self, sk_adapter: AzureSKAdapter, prompt_loader: GenerationPromptLoader | None = None) -> None:
         self._sk = sk_adapter
         self._prompts = prompt_loader or GenerationPromptLoader()
@@ -157,6 +177,7 @@ class TextSectionGenerator:
         return self._sk.is_configured()
 
     def _task_for_section(self, section: SectionDefinition) -> str:
+        """Complex sections route to ``gpt-5`` (high reasoning); rest use ``gpt-5-mini``."""
         if section.is_complex:
             return "complex_section"
         return "text_generation"
@@ -171,7 +192,12 @@ class TextSectionGenerator:
         parent_title: str | None = None,
         child_titles: list[str] | None = None,
     ) -> dict[str, Any]:
-        template = self._prompts.load_template("text", section.prompt_selector)
+        """Generate prose for one section and return the GenerationSectionResult dict.
+
+        The returned dict shape is validated by ``GenerationSectionResult`` in
+        the assembler — extending it requires updating both ends in lockstep.
+        """
+        template = self._prompts.load_template_with_shared_policy("text", section.prompt_selector)
         evidence_context = evidence_text_from_retrieval(retrieval_payload)
         mapping = build_prompt_mapping(
             section,

@@ -1,3 +1,13 @@
+"""Phase 10 SSE stream tests: subscriber fanout and terminal close.
+
+Verifies that the SSE endpoint:
+
+- Subscribes a queue per request and isolates fanout per workflow.
+- Emits a ``: heartbeat`` comment line after the idle timeout.
+- Closes the response on terminal events (``workflow.completed`` or
+  ``workflow.failed``) and unsubscribes the queue.
+"""
+
 from __future__ import annotations
 
 import asyncio

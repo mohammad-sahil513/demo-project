@@ -1,4 +1,26 @@
-"""Template skeleton and style extraction for custom templates."""
+"""Template skeleton and style extraction for custom templates.
+
+For ``.docx`` templates we walk ``word/document.xml`` and build:
+
+- a list of :class:`ExtractedHeading` (heading text, level, style name,
+  numbering prefix);
+- a mapping ``order -> table_header_row`` for the first table that appears
+  under each heading;
+- a flag for whether a Table of Contents was detected (so we can skip
+  re-emitting TOC entries as headings).
+
+For ``.xlsx`` templates each worksheet becomes a level-1 "heading" and we
+detect the header row per worksheet (either strict row-1 or a heuristic
+scan of the first 5 rows, controlled by ``HEADER_DETECTION_MODE``).
+
+The heading detector accepts three patterns:
+1. Paragraphs styled ``Heading N``.
+2. Numbered body paragraphs like ``1.2 Scope``.
+3. Short ALL-CAPS lines (<= 12 words).
+
+It explicitly *rejects* TOC paragraphs and ``... 3`` dot-leader lines so the
+plan only contains actual body headings.
+"""
 
 from __future__ import annotations
 
@@ -7,11 +29,10 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from zipfile import ZipFile
 
-from openpyxl import load_workbook
-
 from core.config import settings
 from core.exceptions import TemplateException
 from modules.template.models import DocumentSkeleton, ExtractedHeading, StyleMap
+from modules.template.xlsx_workbook import open_xlsx_workbook
 
 _WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 _SHEET_NS = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
@@ -268,9 +289,8 @@ class TemplateExtractor:
         return skeleton, StyleMap(), sheet_map
 
     def _extract_xlsx_schema(self, template_path: Path, sheet_names: list[str]) -> list[dict[str, object]]:
-        wb = load_workbook(filename=str(template_path), read_only=True, data_only=True)
         schema: list[dict[str, object]] = []
-        try:
+        with open_xlsx_workbook(template_path, read_only=True, data_only=True) as wb:
             for idx, sheet_name in enumerate(sheet_names, start=1):
                 if sheet_name not in wb.sheetnames:
                     schema.append(
@@ -297,8 +317,6 @@ class TemplateExtractor:
                         "header_detection_metadata": detection_meta,
                     }
                 )
-        finally:
-            wb.close()
         return schema
 
     def _detect_headers(self, worksheet) -> tuple[list[str], dict[str, object]]:
@@ -363,8 +381,10 @@ class TemplateExtractor:
         return bool(self._TOC_LINE_RE.match(text))
 
     def _is_real_heading(self, text: str, style_value: str) -> bool:
-        """
-        Detect actual body headings while excluding TOC content.
+        """Detect actual body headings while excluding TOC content.
+
+        Accepts paragraphs styled ``HeadingN``, numbered headings, and
+        short ALL-CAPS lines; rejects ``toc`` style and dot-leader rows.
         """
         if not text:
             return False
@@ -386,8 +406,9 @@ class TemplateExtractor:
         return is_heading
 
     def _derive_heading_level(self, text: str, style_value: str) -> int:
-        """
-        Prefer explicit Heading N styles. Otherwise infer from numbering depth.
+        """Prefer explicit ``Heading N`` styles. Otherwise infer from numbering depth.
+
+        ``1.2.3 Foo`` is level 3 (two dots + 1); a bare ``Foo`` line is level 1.
         """
         if style_value:
             style_match = self._HEADING_STYLE_LEVEL_RE.search(style_value)

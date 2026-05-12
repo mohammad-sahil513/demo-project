@@ -1,4 +1,23 @@
-"""Hybrid chunking for parsed BRD documents."""
+"""Hybrid chunking for parsed BRD documents.
+
+Strategy
+--------
+We split a parsed document into two kinds of chunks:
+
+1. **Table chunks** — every Document Intelligence table becomes a single
+   chunk with its markdown body. Tables are atomic; we don't slide a window
+   through them because that would shred row/column relationships.
+2. **Text chunks** — the full text is first split on heading patterns
+   (``_HEADING_RE``) so each section has its own heading hint, then a
+   token-based sliding window (with overlap) is applied within each section.
+
+Token-mode selection
+--------------------
+- ``"tiktoken"`` (default) — uses the OpenAI ``cl100k_base`` encoder. Gives
+  the most accurate chunk sizes vs. what the LLM will see downstream.
+- ``"word"`` — whitespace fallback for environments without ``tiktoken``.
+  Less accurate but never blocks ingestion.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +30,11 @@ from core.ids import chunk_id_for_document
 from core.token_count import count_tokens
 from infrastructure.doc_intelligence import ParsedDocument
 
+# Heading detector. Three alternatives, in order of preference:
+# 1. Markdown ATX headings (``# ... ######``).
+# 2. ALL-CAPS lines of 5+ chars (common in legal/spec docs).
+# 3. Numbered headings like ``1.`` / ``1.2.3``.
+# The ``(?m)`` flag makes ``^`` match per-line.
 _HEADING_RE = re.compile(
     r"(?m)^(#{1,6}\s+.+|[A-Z][A-Z0-9\s\-]{4,}|(?:\d+(?:\.\d+)*)\s+[^\n]+)\s*$",
 )
@@ -19,6 +43,12 @@ _TOKEN_RE = re.compile(r"\S+")
 
 @dataclass(slots=True, frozen=True)
 class IngestionChunk:
+    """One row that will be upserted into the search index.
+
+    ``content_type`` is either ``"text"`` or ``"table"`` so the retriever
+    can apply different ranking weights per modality if needed.
+    """
+
     chunk_id: str
     document_id: str
     workflow_run_id: str
@@ -39,7 +69,11 @@ class DocumentChunker:
         overlap: int = 64,
         token_mode: str = "tiktoken",
     ) -> None:
+        # Floor the chunk size — anything smaller than 32 tokens is just
+        # noise and harms retrieval quality.
         self._chunk_size = max(32, chunk_size)
+        # Overlap can't exceed chunk_size - 1 (otherwise the window stops
+        # advancing) and can't be negative.
         self._overlap = max(0, min(overlap, self._chunk_size - 1))
         normalized_mode = (token_mode or "tiktoken").strip().lower()
         self._token_mode = normalized_mode if normalized_mode in {"tiktoken", "word"} else "tiktoken"
@@ -51,10 +85,19 @@ class DocumentChunker:
         workflow_run_id: str,
         parsed: ParsedDocument,
     ) -> list[IngestionChunk]:
+        """Produce all chunks for one parsed document.
+
+        Tables are emitted first so they get the lowest chunk indices —
+        downstream filtering can prefer table evidence when section content
+        is tabular.
+        """
         chunks: list[IngestionChunk] = []
         chunk_index = 0
+        # Map character offsets in ``parsed.full_text`` to page numbers using
+        # Document Intelligence's paragraph spans.
         page_markers = self._page_markers(parsed.raw_result)
 
+        # --- Phase A: table chunks --------------------------------------
         for table in parsed.tables:
             text = table.markdown.strip()
             if not text:
@@ -73,9 +116,12 @@ class DocumentChunker:
             )
             chunk_index += 1
 
+        # --- Phase B: text chunks per section ---------------------------
         for heading, body, start_offset in self._split_sections(parsed.full_text):
             page_number = self._resolve_page_from_offset(start_offset, page_markers)
             for text_piece in self._sliding_windows(body):
+                # Drop tiny tails — < 10 tokens rarely contains useful
+                # signal and pollutes retrieval results with near-duplicates.
                 if self._token_count(text_piece) < 10:
                     continue
                 chunks.append(
@@ -95,6 +141,12 @@ class DocumentChunker:
         return chunks
 
     def _split_sections(self, text: str) -> list[tuple[str | None, str, int]]:
+        """Split ``text`` into ``(heading, body, original_offset)`` tuples.
+
+        ``original_offset`` is the byte position in the input text — used by
+        :meth:`_resolve_page_from_offset` to attach a page number to the
+        section without re-running Document Intelligence's bounding regions.
+        """
         original = text
         text = text.strip()
         if not text:
@@ -123,6 +175,11 @@ class DocumentChunker:
         return sections
 
     def _sliding_windows(self, text: str) -> list[str]:
+        """Token-mode sliding window with ``chunk_size``/``overlap`` config.
+
+        Falls back to the whitespace word splitter when ``tiktoken`` is
+        unavailable. Both implementations emit non-empty stripped windows.
+        """
         if self._token_mode == "word" or self._encoding() is None:
             return self._sliding_windows_word_fallback(text)
 
@@ -196,6 +253,13 @@ class DocumentChunker:
             return None
 
     def _page_markers(self, raw_result: dict[str, Any]) -> list[tuple[int, int]]:
+        """Return sorted ``(char_offset, page_number)`` pairs from paragraphs.
+
+        Each entry is the first character offset of a paragraph and the
+        page that paragraph starts on. The list is sorted by offset so
+        :meth:`_resolve_page_from_offset` can binary-search (linear today;
+        small N).
+        """
         markers: list[tuple[int, int]] = []
         paragraphs = raw_result.get("paragraphs") if isinstance(raw_result, dict) else None
         if not isinstance(paragraphs, list):
@@ -223,6 +287,13 @@ class DocumentChunker:
         return markers
 
     def _resolve_page_from_offset(self, offset: int, markers: list[tuple[int, int]]) -> int | None:
+        """Map a character offset to a page number using ``markers``.
+
+        Walks markers in order (they're pre-sorted) until we find one with
+        a higher offset than the target. Falls back to the first page when
+        the offset is before the earliest marker (rare; happens for
+        preface text without paragraph metadata).
+        """
         if not markers:
             return None
         page: int | None = None

@@ -1,4 +1,13 @@
-"""Output service for generated artifact records."""
+"""Output service — manage final exported artifact records.
+
+A new :class:`OutputRecord` is created once the RENDER_EXPORT phase
+writes the final DOCX/XLSX file to disk. The record is the only entity
+the frontend needs to construct a download URL; the actual binary lives
+under ``storage/outputs/``.
+
+``get_download_info`` returns the absolute path and filename; the API
+streams the bytes via :class:`fastapi.responses.FileResponse`.
+"""
 
 from __future__ import annotations
 

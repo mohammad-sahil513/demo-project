@@ -1,5 +1,14 @@
+/**
+ * Section sidebar on the Output page.
+ *
+ * Lists every section from the assembled document for the active
+ * deliverable and highlights the currently selected one. Clicking a
+ * row updates `activeSectionId` on the job store, which causes
+ * {@link DocxViewer} to scroll/render that section's content.
+ */
 import { useJobStore } from '../../store/useJobStore'
 import { ChevronRight } from 'lucide-react'
+import { buildSectionPreviewMarkdown } from '../../utils/sectionPreviewContent'
 
 export function SectionSidebar() {
   const {
@@ -7,6 +16,7 @@ export function SectionSidebar() {
     activeSectionId,
     documents,
     workflowDetailByType,
+    workflowRunByType,
     setActiveSectionId,
     setSectionContent,
   } = useJobStore()
@@ -23,8 +33,11 @@ export function SectionSidebar() {
     if (!activDoc || sectionId === activeSectionId) return
     setActiveSectionId(sectionId)
     const row = assembled?.sections?.find((s) => s.section_id === sectionId)
-    const content = row?.content ?? null
-    setSectionContent(content ?? '_No content for this section._')
+    const runId = workflowRunByType[activDoc]
+    const markdown =
+      row && runId ? buildSectionPreviewMarkdown(row, runId) : null
+    const fallback = (row?.content ?? '').trim() || null
+    setSectionContent((markdown ?? fallback) ?? '_No content for this section._')
   }
 
   if (rows.length === 0) {

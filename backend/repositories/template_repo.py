@@ -1,4 +1,8 @@
-"""Template JSON repository."""
+"""Template repository — persists :class:`TemplateRecord` as JSON files.
+
+Thin wrapper over :class:`BaseJsonRepository` that pins the primary key and
+the human-facing resource name used for 404 messages.
+"""
 
 from __future__ import annotations
 

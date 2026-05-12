@@ -1,3 +1,13 @@
+"""In-place DOCX placeholder writer: targeted node rewrites only.
+
+Builds a minimal DOCX with placeholders in different scopes (paragraph
+text tokens, content controls, bookmarks) and asserts that the writer:
+
+- Replaces only the targeted node and leaves siblings untouched.
+- Escapes XML special characters in placeholder values.
+- Preserves header/footer/media parts byte-for-byte in the output zip.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

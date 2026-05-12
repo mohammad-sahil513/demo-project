@@ -1,3 +1,10 @@
+/**
+ * Tests for `subscribeToWorkflowEvents`.
+ *
+ * The mock `EventSource` lets us simulate `onopen`/`onmessage`/`onerror`
+ * lifecycles without a real backend so the test can assert handler
+ * invocation, JSON parsing tolerance, and proper teardown on `close()`.
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { subscribeToWorkflowEvents } from './workflowApi'
 

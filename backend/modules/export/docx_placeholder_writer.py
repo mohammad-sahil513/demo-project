@@ -1,4 +1,23 @@
-"""In-place DOCX OOXML placeholder fill (preserves tables, images, non-target regions)."""
+"""In-place DOCX OOXML placeholder fill — preserves tables, images, non-target regions.
+
+The placeholder-native fill path: unzip the template, parse the parts
+that contain placeholder anchors (``word/document.xml``, headers,
+footers), and rewrite **only** the targeted nodes. Everything else is
+copied byte-for-byte back into the output zip, which is what gives this
+path its strict fidelity guarantee.
+
+Two location strategies are supported via the schema:
+
+- **Absolute XPath** (``/w:document/w:body/w:p[N]``) for paragraph-level
+  token replacement (``{{ token }}``).
+- **Descendant XPath** for content controls and bookmark ranges where
+  the anchor is identified by node type rather than exact position.
+
+The token regex is built per-placeholder so the writer can replace a
+single token without affecting any other token sharing a paragraph. XML
+text values are escaped via :func:`_escape_xml_text` to keep the output
+spec-compliant.
+"""
 
 from __future__ import annotations
 

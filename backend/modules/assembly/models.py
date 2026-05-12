@@ -1,4 +1,13 @@
-"""In-memory assembled document structures (post-generation, pre-export)."""
+"""In-memory assembled document structures (post-generation, pre-export).
+
+These are intentionally lean: the assembler strips citations and other
+UI-only metadata to keep the export contract small. Citations live on the
+workflow record's ``section_generation_results`` for display in the UI.
+
+``export_mode`` is either ``"final"`` (production export) or ``"preview"``
+(used by template preview/sample fill flows). It changes hygiene rules in
+``modules.assembly.normalizer``.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +24,7 @@ class AssembledSection(BaseModel):
     section_id: str
     title: str
     level: int = 1
-    output_type: str = "text"
+    output_type: str = "text"  # ``"text"`` | ``"table"`` | ``"diagram"``
     content: str = ""
     diagram_path: str | None = None
 
@@ -27,6 +36,8 @@ class AssembledSection(BaseModel):
 
 
 class AssembledDocument(BaseModel):
+    """The complete assembled document handed to the export renderer."""
+
     model_config = ConfigDict(extra="ignore")
 
     title: str

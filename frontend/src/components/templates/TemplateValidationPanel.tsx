@@ -1,3 +1,11 @@
+/**
+ * Validation errors + warnings panel on the template preview screen.
+ *
+ * Each issue dict from the backend carries at minimum a `code` and a
+ * `message`; this panel renders them as a flat list grouped by
+ * severity. Empty lists collapse to a single "no issues" line so the
+ * card always has the same height.
+ */
 interface Props {
   validationStatus?: string | null
   errors?: Array<Record<string, unknown>>

@@ -1,3 +1,17 @@
+/**
+ * Output page (route: `/output`).
+ *
+ * Renders the final generated document for every deliverable produced
+ * by the workflow. Layout: a left-hand {@link DocumentTabs} switcher,
+ * a {@link SectionSidebar} listing assembled sections, the
+ * {@link DocxViewer} preview in the middle, and an evidence
+ * {@link CitationPanel} on the right with a {@link DownloadPanel}
+ * floating on top for the .docx/.xlsx export.
+ *
+ * On mount the page hydrates `workflowDetailByType` in the job store
+ * from `/api/workflow-runs/{id}` so the user can reload safely without
+ * losing context.
+ */
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus } from 'lucide-react'
@@ -10,6 +24,7 @@ import { useJobStore, type DocType } from '../store/useJobStore'
 import { getWorkflow } from '../api/workflowApi'
 import type { CitationDto } from '../api/types'
 import { getApiErrorMessage } from '../api/errors'
+import { buildSectionPreviewMarkdown } from '../utils/sectionPreviewContent'
 
 export function OutputPage() {
   const navigate = useNavigate()
@@ -76,9 +91,12 @@ export function OutputPage() {
           setActiveDoc(firstType)
           const wf = useJobStore.getState().workflowDetailByType[firstType]
           const sec = wf?.assembled_document?.sections?.[0]
+          const rid = workflowRunByType[firstType]
           if (sec) {
             setActiveSectionId(sec.section_id)
-            setSectionContent(sec.content ?? '_No content for this section._')
+            const md = rid ? buildSectionPreviewMarkdown(sec, rid) : null
+            const fb = (sec.content ?? '').trim() || null
+            setSectionContent((md ?? fb) ?? '_No content for this section._')
           }
         }
       } catch (e: unknown) {

@@ -1,3 +1,13 @@
+"""Hosting lifecycle checks: strict policy, storage probe, and reconciliation.
+
+Covers :mod:`core.hosting`:
+
+- ``strict_policy_violations`` raises only in non-local environments.
+- ``verify_storage_writable`` returns ``False`` for an unwritable path.
+- ``reconcile_interrupted_workflows`` flips ``RUNNING`` records to
+  ``FAILED`` after a simulated process restart.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

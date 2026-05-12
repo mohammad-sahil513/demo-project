@@ -1,4 +1,4 @@
-"""Output JSON repository."""
+"""Output repository — persists :class:`OutputRecord` as JSON files."""
 
 from __future__ import annotations
 

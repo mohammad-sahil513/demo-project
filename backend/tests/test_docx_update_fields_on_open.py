@@ -1,3 +1,10 @@
+"""``updateFields`` flag: Word recomputes TOC + page numbers on first open.
+
+Ensures :func:`ensure_update_fields_on_open` injects
+``<w:updateFields w:val="true"/>`` into ``word/settings.xml`` (creating
+the part when missing) and that re-running it is idempotent.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

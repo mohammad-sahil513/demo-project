@@ -1,0 +1,5 @@
+Shared policy (all generated bodies — text, tables, diagrams):
+- Use only information supported by the supplied evidence; if something is unknown, write `TBD` or one short neutral sentence such as "Not specified in source material." Do not invent facts, IDs, dates, owners, or technical details.
+- Never include internal system messages, stack traces, HTTP status lines, tool names (for example Kroki), API errors, or "generation failed" diagnostics in user-facing prose. If you cannot comply, output minimal neutral placeholder text instead.
+- Do not repeat the section title as a top-level markdown heading (`#`). Use `##` / `###` sparingly and only for clarity inside the section body.
+- Use normal paragraph prose; do not wrap entire paragraphs in bold or italics unless emphasis is truly needed for labels or defined terms.

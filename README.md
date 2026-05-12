@@ -14,6 +14,25 @@ The app supports:
 - `frontend/` React UI (Vite + TypeScript + Tailwind)
 - `docs/` phase checklists and implementation notes
 
+## Handover and documentation
+
+This codebase ships two layers of documentation that are intentionally
+complementary:
+
+- Architectural prose lives under `docs/`. Start with
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the
+  high-level system overview and structure,
+  [docs/API.md](docs/API.md) for the public contract, and
+  [docs/PIPELINE.md](docs/PIPELINE.md) for workflow behavior.
+  Operational guidance lives in `docs/OPERATIONS.md`,
+  `docs/TEMPLATE_OPERATIONS.md`, and `docs/RELEASE_OPERATIONS.md`.
+- Every Python module under `backend/` and every TypeScript / TSX file
+  under `frontend/src/` carries a verbose top-of-file header describing
+  its role, invariants, and key collaborators, plus JSDoc / docstrings
+  on the public API. These in-code comments are the day-to-day map for
+  implementers; the `docs/` prose is the source of truth when an
+  in-code comment and a `docs/` section disagree.
+
 ## Requirements
 
 - Python 3.11+
@@ -36,6 +55,57 @@ uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
 Backend base URL: `http://127.0.0.1:8000`
 
+### 1.1) Initial setup automation
+
+Run full first-time setup (Docker + storage + Azure index):
+
+```powershell
+.\scripts\init-setup.ps1
+```
+
+Show compact skip/execution summary:
+
+```powershell
+.\scripts\init-setup.ps1 -VerboseSkip
+```
+
+Skip selected phases if needed:
+
+```powershell
+.\scripts\init-setup.ps1 -SkipDocker
+.\scripts\init-setup.ps1 -SkipStorage
+.\scripts\init-setup.ps1 -SkipIndex
+```
+
+Common combinations:
+
+```powershell
+# Docker already running, do storage + index only
+.\scripts\init-setup.ps1 -SkipDocker -VerboseSkip
+
+# Only verify/prepare Docker (Kroki)
+.\scripts\init-setup.ps1 -SkipStorage -SkipIndex -VerboseSkip
+```
+
+Individual setup scripts:
+
+- Kroki start: `.\scripts\start-kroki.ps1`
+- Kroki status/health: `.\scripts\status-kroki.ps1`
+- Kroki stop: `.\scripts\stop-kroki.ps1`
+- Storage bootstrap: `cd backend && python .\scripts\storage_setup.py`
+- Azure index list: `cd backend && python .\scripts\ai_search_index.py list`
+- Azure index create if missing: `cd backend && python .\scripts\ai_search_index.py create-if-missing`
+- Azure index recreate: `cd backend && python .\scripts\ai_search_index.py recreate`
+- Azure index delete if exists: `cd backend && python .\scripts\ai_search_index.py delete-if-exists`
+- Azure index schema validate: `cd backend && python .\scripts\validate_ai_search_index.py`
+
+All setup scripts are safe to re-run. When setup is already ready, they skip or no-op where applicable.
+
+Quick troubleshooting:
+- If Docker step fails, ensure Docker Desktop and Docker CLI are installed and available in `PATH`.
+- If blob setup fails, confirm `STORAGE_BACKEND=blob` and blob env vars are set in `backend/.env`.
+- If index setup fails, verify Azure Search endpoint/key/index values in `backend/.env`.
+
 ### 2) Frontend
 
 ```bash
@@ -57,6 +127,10 @@ Important variables:
 - `APP_ENV` (`development` or `production`)
 - `APP_DEBUG` (`false` in production)
 - `STORAGE_ROOT` (must be persistent and writable in production)
+- `STORAGE_BACKEND` (`local` or `blob`)
+- Blob-mode variables (used when `STORAGE_BACKEND=blob`):
+  - `AZURE_STORAGE_CONNECTION_STRING` or `AZURE_STORAGE_ACCOUNT_URL`
+  - `AZURE_STORAGE_CONTAINER`
 - `API_PREFIX` (default `/api`)
 - `CORS_ORIGINS` (comma-separated frontend origins; use `*` for local dev only)
 - `KROKI_URL`

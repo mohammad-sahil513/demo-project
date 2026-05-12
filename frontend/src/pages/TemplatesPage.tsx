@@ -1,3 +1,15 @@
+/**
+ * Templates page (route: `/templates`).
+ *
+ * Lists every custom template grouped by `template_type` (PDD / SDD /
+ * UAT) and lets the user upload a new template per type via the
+ * {@link AddTemplatePanel}. Each row uses {@link TemplateCard} to show
+ * the compile status, validation badges, and an action menu (preview,
+ * recompile, delete).
+ *
+ * The fetch is polled silently while any template is still `COMPILING`
+ * so the badge updates without the user pressing reload.
+ */
 import { useEffect, useState, useCallback } from 'react'
 import { RefreshCw, LayoutTemplate } from 'lucide-react'
 import { templateApi } from '../api/templateApi'

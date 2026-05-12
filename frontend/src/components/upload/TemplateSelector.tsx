@@ -1,3 +1,15 @@
+/**
+ * Per-deliverable template picker on the upload page.
+ *
+ * For every selected deliverable type the user picks exactly one
+ * template (inbuilt or custom). On mount the component fetches the
+ * full template list and groups by `template_type`. Custom templates
+ * that are still `COMPILING` are disabled so the user cannot start a
+ * workflow against a half-baked template.
+ *
+ * The eye icon opens the {@link TemplatePreviewModal} without leaving
+ * the page so a user can sanity-check a custom template inline.
+ */
 import { useEffect, useState, useMemo } from 'react'
 import { ChevronRight, Check, Eye, Loader2 } from 'lucide-react'
 import { templateApi } from '../../api/templateApi'

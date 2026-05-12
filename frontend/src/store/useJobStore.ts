@@ -1,3 +1,16 @@
+/**
+ * Global job store (Zustand) — survives navigation across the upload,
+ * progress, and output pages.
+ *
+ * Holds the in-flight document/template selection, the currently active
+ * workflow run id, and the latest workflow status snapshot received via
+ * SSE. Page components subscribe to the slices they need and call the
+ * exposed mutators rather than passing data via routing.
+ *
+ * The store is *not* persisted to localStorage — refresh starts fresh,
+ * which is fine because every artifact is retrievable from the backend
+ * by id.
+ */
 import { create } from 'zustand'
 import type { WorkflowStatusData } from '../api/types'
 

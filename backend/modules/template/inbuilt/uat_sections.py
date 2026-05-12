@@ -1,4 +1,10 @@
-"""Inbuilt UAT section definitions."""
+"""Inbuilt UAT (User Acceptance Test) section definitions.
+
+Mirror of :mod:`pdd_sections` for the UAT template. The plan is mostly
+``output_type="table"`` — test case registers, traceability matrices, and
+defect logs — which routes generation through the table generator with
+strict GFM table normalization.
+"""
 
 from __future__ import annotations
 

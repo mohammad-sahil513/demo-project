@@ -1,4 +1,24 @@
-"""Route assembled documents to the correct file builder."""
+"""Route assembled documents to the correct file builder.
+
+The :class:`ExportRenderer` is the single public entry point used by the
+RENDER_EXPORT workflow phase. Given an :class:`AssembledDocument` plus
+template / document context, it decides which builder to invoke:
+
+- **Inbuilt DOCX**          built from scratch by :class:`DocxBuilder`
+                            using one of the inbuilt style maps.
+- **Custom DOCX (native)**  placeholder-native filler that writes content
+                            into deterministic OOXML locations.
+- **Custom DOCX (strict)**  placeholder filler with strict fidelity gates
+                            (no fallback when schema is incomplete).
+- **Custom DOCX (legacy)**  heading-based filler retained for backward
+                            compatibility (gated by feature flag).
+- **XLSX**                  workbook filler that respects the user-supplied
+                            template's sheet layout.
+
+Each path runs a post-build pipeline: integrity check (zip + media +
+content control), surface fidelity scan, optional structure fixer for
+title/TOC pagination, and a flag to make Word recompute fields on open.
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,7 +29,7 @@ from modules.assembly.models import AssembledDocument, AssembledSection
 from modules.assembly.normalizer import normalize_section_content
 from modules.export.docx_builder import DocxBuilder
 from modules.export.docx_filler import DocxFiller
-from modules.export.docx_integrity import check_docx_integrity
+from modules.export.docx_integrity import check_docx_integrity, check_docx_surface_fidelity
 from modules.export.docx_placeholder_filler import DocxPlaceholderFiller
 from modules.export.docx_placeholder_writer import fill_docx_placeholders_native
 from modules.export.docx_structure_fixer import enforce_title_toc_pagination
@@ -37,15 +57,37 @@ class ExportRenderer:
         document: ExportDocumentInfo,
         assembled: AssembledDocument,
         export_warnings: list[dict[str, object]],
+        apply_structure_fixer: bool,
     ) -> None:
-        export_warnings.extend(
-            enforce_title_toc_pagination(
-                out,
-                doc_title=document.filename,
-                doc_type=assembled.doc_type,
+        if apply_structure_fixer:
+            export_warnings.extend(
+                enforce_title_toc_pagination(
+                    out,
+                    doc_title=document.filename,
+                    doc_type=assembled.doc_type,
+                )
             )
-        )
+        elif settings.template_docx_structure_fixer_enabled:
+            scope = (settings.template_docx_structure_fixer_scope or "inbuilt_only").strip().lower()
+            if scope != "all":
+                export_warnings.append(
+                    {
+                        "phase": "RENDER_EXPORT",
+                        "code": "docx_structure_fixer_skipped_non_inbuilt",
+                        "message": (
+                            "Title/TOC pagination fixer skipped for this export to preserve custom template layout. "
+                            "Set TEMPLATE_DOCX_STRUCTURE_FIXER_SCOPE=all for legacy behavior on custom DOCX."
+                        ),
+                    }
+                )
         ensure_update_fields_on_open(out)
+
+    @staticmethod
+    def _apply_structure_fixer_for_path(*, filled_custom_template: bool) -> bool:
+        scope = (settings.template_docx_structure_fixer_scope or "inbuilt_only").strip().lower()
+        if scope == "all":
+            return True
+        return not filled_custom_template
 
     def render(
         self,
@@ -107,7 +149,13 @@ class ExportRenderer:
         )
         if use_inbuilt:
             self._docx_builder.build(assembled_for_export, style_map, out)
-            self._finalize_docx_export(out, document=document, assembled=assembled_for_export, export_warnings=export_warnings)
+            self._finalize_docx_export(
+                out,
+                document=document,
+                assembled=assembled_for_export,
+                export_warnings=export_warnings,
+                apply_structure_fixer=self._apply_structure_fixer_for_path(filled_custom_template=False),
+            )
             return out, f"{friendly_doc}.docx", export_warnings
 
         custom_tpl: Path | None = None
@@ -145,9 +193,22 @@ class ExportRenderer:
                         section_placeholder_map=dict(template.section_placeholder_map),
                     )
                 )
-                self._finalize_docx_export(out, document=document, assembled=assembled_for_export, export_warnings=export_warnings)
+                self._finalize_docx_export(
+                    out,
+                    document=document,
+                    assembled=assembled_for_export,
+                    export_warnings=export_warnings,
+                    apply_structure_fixer=self._apply_structure_fixer_for_path(filled_custom_template=True),
+                )
                 export_warnings.extend(
                     check_docx_integrity(
+                        template_path=custom_tpl,
+                        output_path=out,
+                        placeholder_schema=template.placeholder_schema,
+                    )
+                )
+                export_warnings.extend(
+                    check_docx_surface_fidelity(
                         template_path=custom_tpl,
                         output_path=out,
                         placeholder_schema=template.placeholder_schema,
@@ -163,9 +224,22 @@ class ExportRenderer:
                         placeholder_schema=template.placeholder_schema,
                     )
                 )
-                self._finalize_docx_export(out, document=document, assembled=assembled_for_export, export_warnings=export_warnings)
+                self._finalize_docx_export(
+                    out,
+                    document=document,
+                    assembled=assembled_for_export,
+                    export_warnings=export_warnings,
+                    apply_structure_fixer=self._apply_structure_fixer_for_path(filled_custom_template=True),
+                )
                 export_warnings.extend(
                     check_docx_integrity(
+                        template_path=custom_tpl,
+                        output_path=out,
+                        placeholder_schema=template.placeholder_schema,
+                    )
+                )
+                export_warnings.extend(
+                    check_docx_surface_fidelity(
                         template_path=custom_tpl,
                         output_path=out,
                         placeholder_schema=template.placeholder_schema,
@@ -188,11 +262,30 @@ class ExportRenderer:
                 export_warnings.extend(
                     self._docx_filler.fill(custom_tpl, assembled_for_export, out, style_map=style_map),
                 )
-                self._finalize_docx_export(out, document=document, assembled=assembled_for_export, export_warnings=export_warnings)
+                self._finalize_docx_export(
+                    out,
+                    document=document,
+                    assembled=assembled_for_export,
+                    export_warnings=export_warnings,
+                    apply_structure_fixer=self._apply_structure_fixer_for_path(filled_custom_template=True),
+                )
+                export_warnings.extend(
+                    check_docx_surface_fidelity(
+                        template_path=custom_tpl,
+                        output_path=out,
+                        placeholder_schema=template.placeholder_schema,
+                    )
+                )
             return out, f"{friendly_doc}.docx", export_warnings
 
         self._docx_builder.build(assembled_for_export, style_map, out)
-        self._finalize_docx_export(out, document=document, assembled=assembled_for_export, export_warnings=export_warnings)
+        self._finalize_docx_export(
+            out,
+            document=document,
+            assembled=assembled_for_export,
+            export_warnings=export_warnings,
+            apply_structure_fixer=self._apply_structure_fixer_for_path(filled_custom_template=False),
+        )
         return out, f"{friendly_doc}.docx", export_warnings
 
     def _prepare_document_for_export(

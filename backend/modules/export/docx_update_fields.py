@@ -1,4 +1,14 @@
-"""Post-process saved DOCX so Word refreshes fields (TOC, page numbers) on open."""
+"""Post-process saved DOCX so Word refreshes fields (TOC, page numbers) on open.
+
+python-docx writes field codes (TOC, page numbers, hyperlinks) but does
+not evaluate them — Word evaluates fields when the document is opened
+the next time. Setting ``<w:updateFields w:val="true"/>`` on
+``word/settings.xml`` tells Word to do that automatically, which matches
+what mail-merge tools and template-driven document generators do.
+
+This rewrite is idempotent: if the flag is already set we still re-write
+the same value so multiple renders are safe.
+"""
 
 from __future__ import annotations
 

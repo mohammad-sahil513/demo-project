@@ -1,4 +1,19 @@
-"""Build a fresh DOCX from StyleMap + assembled sections (inbuilt templates)."""
+"""Build a fresh DOCX from a StyleMap + assembled sections (inbuilt templates).
+
+This builder runs for inbuilt PDD / SDD / UAT exports where there is no
+user-supplied template file. The :class:`StyleMap` registered under
+``modules.template.inbuilt.styles`` controls page setup, heading styles,
+and table appearance.
+
+The builder consumes :class:`AssembledSection` objects in order. Section
+content is parsed into structured :class:`ContentBlock` items (paragraphs,
+bullets, tables, images) before being emitted to the document — that keeps
+the writer dumb and easy to test.
+
+Tables come in as GFM markdown and are converted to native Word tables.
+Diagrams come in as PNG paths; the builder embeds them at a fixed display
+box so the visual rhythm of the document stays consistent across sections.
+"""
 from __future__ import annotations
 
 from dataclasses import asdict

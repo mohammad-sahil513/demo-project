@@ -1,4 +1,21 @@
-"""Parallel, dependency-aware section generation orchestration."""
+"""Parallel, dependency-aware section generation orchestration.
+
+The orchestrator groups sections into *waves* — within a wave, all sections
+have their declared dependencies satisfied, so they can be generated in
+parallel (bounded by ``max_concurrent_sections``). Each wave finishes before
+the next begins so a section's parent / referenced sections are guaranteed
+to have completed.
+
+Two helpers walk the section plan to figure out:
+
+- ``parent_title``  — used in the prompt to give the LLM scope context.
+- ``child_titles``  — used by the prompt and post-processing to discourage
+  parents from rewriting child content.
+
+Per-section failures are *captured*, not raised — we still want the rest of
+the workflow to complete so the user gets a partial document and a clear
+``error`` on the failing section.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -23,7 +40,14 @@ DEFAULT_MAX_CONCURRENT_SECTIONS = 3
 
 
 def compute_execution_waves(sections: list[SectionDefinition]) -> list[list[SectionDefinition]]:
-    """Group sections into waves so dependencies run before dependents."""
+    """Group sections into waves so dependencies run before dependents.
+
+    Uses a Kahn-style topological iteration: each wave contains every
+    remaining section whose dependencies are already satisfied. A cycle or
+    unsatisfiable dependency would yield an empty wave — we log a warning
+    and bypass the dependency by emitting the lowest-execution-order
+    section anyway so the workflow does not deadlock.
+    """
     remaining: dict[str, SectionDefinition] = {s.section_id: s for s in sections}
     completed: set[str] = set()
     waves: list[list[SectionDefinition]] = []
@@ -36,6 +60,8 @@ def compute_execution_waves(sections: list[SectionDefinition]) -> list[list[Sect
         ]
 
         if not wave:
+            # Defensive: dependency graph is broken (cycle or missing id).
+            # Pick the lowest-order section so the workflow makes progress.
             fallback = sorted(remaining.values(), key=lambda x: x.execution_order)[0]
             logger.warning(
                 "generation.graph.stalled detail=dependency graph stalled "
@@ -55,6 +81,8 @@ def compute_execution_waves(sections: list[SectionDefinition]) -> list[list[Sect
 
 
 class GenerationOrchestrator:
+    """Top-level coordinator for the GENERATION phase."""
+
     def __init__(
         self,
         text_generator: TextSectionGenerator,
@@ -67,6 +95,8 @@ class GenerationOrchestrator:
         self._table = table_generator
         self._diagram = diagram_generator
         self._max_concurrent = max(1, int(max_concurrent_sections))
+        # One semaphore guards all sections in a wave so concurrency is
+        # bounded at the workflow level rather than per-generator.
         self._semaphore = asyncio.Semaphore(self._max_concurrent)
 
     def is_configured(self) -> bool:
@@ -86,6 +116,13 @@ class GenerationOrchestrator:
         cost_tracker: GenerationCostTracker,
         emit: EmitFn | None = None,
     ) -> dict[str, dict[str, Any]]:
+        """Drive all sections through generation, wave by wave.
+
+        ``emit`` is an optional SSE emit callback so each section's
+        start/complete event can be streamed to the UI in real time.
+        """
+        # Re-sort defensively — the caller may pass a section list that was
+        # already re-ordered for display.
         ordered = sorted(sections, key=lambda s: s.execution_order)
         waves = compute_execution_waves(ordered)
 
@@ -313,6 +350,8 @@ class GenerationOrchestrator:
                 },
             )
 
+        # ``content_mode`` is set per-section in the plan. It lets template
+        # authors opt out of generation for fixed/static sections.
         if section.content_mode == "skip":
             result = {
                 "output_type": section.output_type,

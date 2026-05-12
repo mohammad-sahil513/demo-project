@@ -1,4 +1,20 @@
-"""Azure Document Intelligence adapter."""
+"""Azure Document Intelligence adapter.
+
+Wraps the *prebuilt-layout* REST endpoint of Azure AI Document Intelligence.
+The flow is an async submit/poll: POST the file, get an
+``operation-location`` URL back, then poll until ``status == "succeeded"``.
+
+The adapter is deliberately small — its only job is to:
+
+1. Submit raw bytes with the right ``Content-Type`` header.
+2. Poll until completion (max 60 attempts).
+3. Convert the ``analyzeResult`` JSON into a typed :class:`ParsedDocument`
+   that the ingestion pipeline can consume without thinking about Azure
+   field names.
+
+Errors raise :class:`IngestionException`; the rest of the pipeline maps
+ingestion failures onto user-friendly workflow errors.
+"""
 
 from __future__ import annotations
 
@@ -13,11 +29,19 @@ from core.logging import get_logger, verbose_logs_enabled
 
 logger = get_logger(__name__)
 
+# Lock to a stable API version — Document Intelligence response shapes change
+# across versions. Update intentionally with a regression test.
 DOC_INTELLIGENCE_API_VERSION = "2024-11-30"
 
 
 @dataclass(slots=True)
 class ParsedTable:
+    """One table extracted from a document.
+
+    ``markdown`` is the table re-emitted as GitHub-flavored markdown so the
+    downstream chunker can index it as text without losing structure.
+    """
+
     markdown: str
     page_number: int | None
     row_count: int
@@ -26,6 +50,12 @@ class ParsedTable:
 
 @dataclass(slots=True)
 class ParsedDocument:
+    """The fields the ingestion pipeline needs from a single parse.
+
+    ``raw_result`` is kept around so we can dump it to disk for debugging
+    or schema migrations without re-running an expensive parse.
+    """
+
     full_text: str
     page_count: int
     language: str | None
@@ -34,7 +64,7 @@ class ParsedDocument:
 
 
 class AzureDocIntelligenceClient:
-    """Thin adapter around Azure Document Intelligence REST API."""
+    """Thin adapter around the Azure Document Intelligence REST API."""
 
     def __init__(
         self,
@@ -105,6 +135,9 @@ class AzureDocIntelligenceClient:
         operation_location: str,
         headers: dict[str, str],
     ) -> dict[str, Any]:
+        # 60 attempts at ~1s each is enough headroom for the largest BRDs we
+        # accept. If the timeout becomes a real concern, switch to an
+        # exponential backoff loop with a fixed total deadline.
         for attempt in range(60):
             try:
                 response = await client.get(operation_location, headers=headers)
@@ -186,11 +219,19 @@ class AzureDocIntelligenceClient:
         return int(page) if isinstance(page, int | float) else None
 
     def _table_to_markdown(self, table: dict[str, Any]) -> str:
+        """Convert one Document Intelligence ``table`` payload to markdown.
+
+        We treat row 0 as the header. Embedded newlines in cell content
+        would break the single-line GFM table format, so they're flattened
+        to spaces; downstream consumers do not need cell-internal newlines.
+        """
         rows = int(table.get("rowCount") or 0)
         cols = int(table.get("columnCount") or 0)
         if rows <= 0 or cols <= 0:
             return ""
 
+        # Pre-allocate a rows×cols matrix so we can populate cells in any
+        # order. Document Intelligence sometimes returns cells out of order.
         matrix = [["" for _ in range(cols)] for _ in range(rows)]
         for cell in table.get("cells") or []:
             if not isinstance(cell, dict):

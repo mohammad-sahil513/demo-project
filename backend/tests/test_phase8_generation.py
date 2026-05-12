@@ -1,3 +1,17 @@
+"""Phase 8 (GENERATION) tests: orchestrator, generators, cost tracking, prompts.
+
+Exercises the full generation surface:
+
+- Text / table / diagram generators with stubbed Azure responses.
+- :func:`compute_execution_waves` honors ``dependencies`` and orders by
+  ``execution_order`` within each wave.
+- Diagram fallback chain (PlantUML -> Mermaid -> deterministic stub).
+- :class:`GenerationCostTracker` snapshots accumulate per model/task and
+  surface in the workflow observability merge.
+- Prompt loader resolves YAML files and merges the shared deliverable
+  policy fragment.
+"""
+
 from __future__ import annotations
 
 import asyncio

@@ -13,6 +13,10 @@ prompt: |
   - table
   - diagram
 
+  Optional include_in_section_plan per section (default: omit or true):
+  - true or omit — heading is included in the workflow section plan (subject to generic front-matter heuristics when no exclusions are used).
+  - false — heading is excluded from the section plan (cover page, revision history, static TOC shell, etc.). Use for headings that must never receive LLM body content.
+
   Return STRICT JSON only in this exact shape:
   {
     "sections": [
@@ -23,7 +27,8 @@ prompt: |
         "prompt_selector": "default",
         "required_fields": [],
         "is_complex": false,
-        "content_mode": "generate"
+        "content_mode": "generate",
+        "include_in_section_plan": true
       }
     ]
   }

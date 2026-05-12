@@ -1,4 +1,21 @@
-"""Background task dispatcher used by API dependencies."""
+"""Background task dispatcher used by API dependencies.
+
+The API layer needs to fire and forget two kinds of async work:
+
+- Template compile (after upload)
+- Workflow execute (after run creation)
+
+In a normal HTTP request, FastAPI's :class:`BackgroundTasks` is the
+right tool — work runs after the response is flushed and shares the
+request's event loop. In tests or scripts that call into services
+directly there is no :class:`BackgroundTasks` instance, so we fall back
+to scheduling a task on the current running loop.
+
+The wrapping :func:`_run_guarded` coroutine ensures any exception is
+logged with the function name and resource id (if a single string arg
+was supplied) instead of crashing the parent process. ``verbose_logs``
+controls whether each dispatch/start/complete event is emitted.
+"""
 
 from __future__ import annotations
 

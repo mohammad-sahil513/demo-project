@@ -1,3 +1,13 @@
+/**
+ * Compact validation status pill — "valid", "warning", "invalid", or "unknown".
+ *
+ * Colors come from the Tailwind palette and match the convention used
+ * elsewhere in the UI: green = valid, amber = warning, red = invalid,
+ * gray = unknown.
+ *
+ * @param props.validationStatus  Backend-provided validation status string;
+ *                                missing values render as "unknown".
+ */
 interface Props {
   validationStatus?: string | null
 }

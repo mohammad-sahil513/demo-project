@@ -1,3 +1,10 @@
+/**
+ * Single template row on the templates list page.
+ *
+ * Shows file name, status badge, fidelity badge, and the inline action
+ * controls (preview, delete, navigate to detail). Compile errors are
+ * surfaced as a red banner under the title so they cannot be missed.
+ */
 import { useState } from 'react'
 import { Eye, Trash2, ChevronRight, AlertCircle, Loader2 } from 'lucide-react'
 import { Template } from '../../store/useJobStore'

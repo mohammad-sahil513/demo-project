@@ -1,4 +1,15 @@
-"""Registry for inbuilt section plans and style maps."""
+"""Registry for inbuilt section plans and style maps.
+
+This is the lookup surface for inbuilt templates. The workflow calls
+``get_inbuilt_section_plan`` and ``get_inbuilt_style_map`` once per run;
+both return deep copies so the orchestrator can mutate plan entries
+(e.g. annotate ``execution_order``) without leaking changes into the next
+run.
+
+``is_inbuilt_template_id`` and ``doc_type_for_inbuilt_template`` are used
+by the export-hint and template-validator paths to branch between the
+inbuilt DOCX builder and the custom DOCX filler.
+"""
 
 from __future__ import annotations
 

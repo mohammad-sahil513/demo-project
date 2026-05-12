@@ -1,4 +1,11 @@
-"""Compatibility layer for markdown/table parsing plus semantic content blocks."""
+"""Compatibility layer for the older table-centric markdown parser.
+
+Older code paths only cared whether a chunk of generated content was
+"text" or "table". We now have a richer :mod:`content_blocks` parser, but
+the builder/filler/xlsx writers still want the two-kind view. This module
+adapts the rich block list back into the simpler shape, normalizing GFM
+tables into a canonical pipe representation along the way.
+"""
 from __future__ import annotations
 
 from typing import Literal

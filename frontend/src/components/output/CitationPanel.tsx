@@ -1,3 +1,12 @@
+/**
+ * Citations panel — show the BRD chunks that grounded the current
+ * section's generation.
+ *
+ * The data comes from the workflow's `section_retrieval_results` map.
+ * Each {@link CitationDto} is rendered as an expandable row showing the
+ * source path, page number (when known), and a truncated chunk ID. The
+ * panel collapses by default so it doesn't crowd the document viewer.
+ */
 import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { CitationDto } from '../../api/types'

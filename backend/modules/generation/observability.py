@@ -1,4 +1,8 @@
-"""Merge generation-phase observability into workflow summary."""
+"""Merge generation-phase observability into the workflow summary.
+
+Cumulative counters (tokens, call count) are *added* to the running totals
+in ``base`` so each phase can call this helper independently.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +20,7 @@ def merge_generation_observability(
     total_tokens_out: int = 0,
     total_llm_calls: int = 0,
 ) -> dict[str, Any]:
+    """Return a new observability dict with generation totals merged in."""
     prior_in = int(base.get("total_tokens_in", 0) if isinstance(base, dict) else 0)
     prior_out = int(base.get("total_tokens_out", 0) if isinstance(base, dict) else 0)
     prior_calls = int(base.get("total_llm_calls", 0) if isinstance(base, dict) else 0)

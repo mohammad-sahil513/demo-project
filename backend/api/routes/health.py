@@ -1,4 +1,17 @@
-"""Health and readiness routes."""
+"""Health and readiness probes.
+
+Two endpoints:
+
+- ``GET /api/health``  Cheap liveness check used by container orchestrators.
+                       Returns ``{"status": "ok"}`` and never inspects
+                       external state.
+
+- ``GET /api/ready``   Readiness probe. Verifies that ``storage_root`` is
+                       writable and (in non-local environments) that the
+                       three Azure services are configured. Returns 503
+                       with a list of failed checks when any check fails
+                       so the orchestrator can withhold traffic.
+"""
 
 from __future__ import annotations
 

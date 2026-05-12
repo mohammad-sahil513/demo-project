@@ -1,4 +1,17 @@
-"""Generate preview assets for compiled custom templates."""
+"""Generate preview assets for compiled custom templates.
+
+Two outputs:
+
+- DOCX preview — a minimal Word document with the section plan rendered as
+  numbered indented lines and a "Generated content placeholder" stub per
+  section. Used by the template list UI as a quick visual sanity check.
+- HTML preview — XLSX-only, a tiny ``<table>`` of sheet names. The template
+  preview modal in the frontend renders this directly.
+
+The minimal DOCX writer here only emits text paragraphs (no styling) — it
+is intentionally tiny and dependency-free. For the sample-content preview
+(closer to a real export) see ``modules.template.sample_assembled``.
+"""
 
 from __future__ import annotations
 

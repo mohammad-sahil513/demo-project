@@ -1,4 +1,16 @@
-"""Document parsing wrapper for ingestion."""
+"""Document parsing wrapper for ingestion.
+
+Thin adapter that:
+
+1. Reads the document bytes from disk.
+2. Normalizes the content type into the explicit MIME the Document
+   Intelligence API expects (see :func:`_normalize_content_type`).
+3. Delegates to :class:`infrastructure.doc_intelligence.AzureDocIntelligenceClient`
+   which performs the actual submit/poll.
+
+The wrapper exists so the ingestion pipeline can be unit-tested without
+touching either the file system or the network.
+"""
 from __future__ import annotations
 
 from mimetypes import guess_type
@@ -9,12 +21,17 @@ from infrastructure.doc_intelligence import AzureDocIntelligenceClient, ParsedDo
 
 
 def _normalize_content_type(file_path: Path, content_type: str | None) -> str:
-    """
-    Normalize content type before sending bytes to Azure Document Intelligence.
+    """Normalize content type before sending bytes to Azure Document Intelligence.
 
-    Why:
-    - Upstream callers may pass generic content types like application/octet-stream.
-    - For Office/PDF files, it's safer to send an explicit MIME type when possible.
+    Why this exists:
+    - Upstream callers (multipart upload) may pass generic content types like
+      ``application/octet-stream``, which Document Intelligence handles less
+      reliably than a specific MIME.
+    - For Office/PDF files, sending the explicit MIME yields better parse
+      quality and avoids extension-sniffing edge cases on the server.
+
+    Resolution order: explicit non-generic input -> :mod:`mimetypes` guess
+    -> hard-coded extension table -> ``application/octet-stream`` fallback.
     """
     raw = (content_type or "").strip().lower()
 
@@ -48,9 +65,19 @@ class DocumentParser:
         self._doc_client = doc_client
 
     def is_configured(self) -> bool:
+        """``True`` when the underlying Document Intelligence client has creds."""
         return self._doc_client.is_configured()
 
     async def parse(self, file_path: Path, *, content_type: str) -> ParsedDocument:
+        """Read ``file_path`` and submit it for analysis.
+
+        Raises
+        ------
+        IngestionException
+            File missing on disk, or zero-byte payload — neither is a valid
+            input and we'd rather fail loudly here than send a useless
+            request to Azure.
+        """
         if not file_path.exists():
             raise IngestionException(f"Document file not found: {file_path}")
 

@@ -1,4 +1,21 @@
-"""Diagram generation: LLM -> PlantUML/Mermaid -> Kroki PNG."""
+"""Diagram generation: LLM -> PlantUML/Mermaid -> Kroki PNG.
+
+Diagrams are tried in a three-phase fallback chain:
+
+1. **PlantUML** (up to :data:`MAX_PLANTUML_ATTEMPTS` attempts). First attempt
+   uses the section-specific prompt; subsequent attempts use the correction
+   template seeded with the failure reason + the previous source.
+2. **Mermaid** (up to :data:`MAX_MERMAID_ATTEMPTS` attempts). Mermaid is
+   used as a fallback because its syntax is simpler — when PlantUML fails
+   repeatedly the model has likely produced invalid PlantUML and a Mermaid
+   re-emit is more likely to succeed.
+3. **Deterministic stub** — a tiny ``flowchart TD`` with the section title.
+   This always renders and means the export will never have a missing image
+   placeholder for a diagram section.
+
+If even the stub fails, we return :data:`NEUTRAL_DIAGRAM_PLACEHOLDER` as
+the content and the assembler emits a warning.
+"""
 from __future__ import annotations
 
 import re
@@ -11,15 +28,21 @@ from infrastructure.sk_adapter import AzureSKAdapter
 from modules.generation.context import build_prompt_mapping, evidence_text_from_retrieval
 from modules.generation.cost_tracking import GenerationCostTracker, llm_delta_between_snapshots
 from modules.generation.kroki import KrokiRenderer
+from modules.assembly.content_hygiene import NEUTRAL_DIAGRAM_PLACEHOLDER
 from modules.generation.prompt_loader import GenerationPromptLoader
 from modules.template.models import SectionDefinition
 
 MAX_PLANTUML_ATTEMPTS = 3
 MAX_MERMAID_ATTEMPTS = 2
+# Cap evidence text for diagram prompts so the model focuses on structure
+# rather than re-emitting the prose. Diagrams need much less context than
+# narrative sections do.
 MAX_DIAGRAM_CONTEXT_CHARS = 3500
 
 
 class DiagramRenderClient(Protocol):
+    """Minimal Kroki-shaped render contract — eases unit testing with mocks."""
+
     async def render_png(self, diagram_type: str, source: str) -> bytes: ...
 
 
@@ -36,19 +59,23 @@ def _strip_code_fence(text: str) -> str:
 
 
 def extract_plantuml(text: str) -> str:
+    """Pull the ``@startuml ... @enduml`` block out of arbitrary model output."""
     cleaned = _strip_code_fence(text)
     if "@startuml" in cleaned and "@enduml" in cleaned:
         start = cleaned.index("@startuml")
+        # ``rindex`` so multiple ``@enduml`` markers do not truncate early.
         end = cleaned.rindex("@enduml") + len("@enduml")
         return cleaned[start:end].strip()
     return cleaned.strip()
 
 
 def extract_mermaid(text: str) -> str:
+    """Strip an optional ``\u200b```mermaid \u200b``` fence around the source."""
     return _strip_code_fence(text).strip()
 
 
 class DiagramSectionGenerator:
+    """Drives the LLM + Kroki diagram pipeline (see module docstring)."""
     def __init__(
         self,
         sk_adapter: AzureSKAdapter,
@@ -70,6 +97,11 @@ class DiagramSectionGenerator:
         return True
 
     def _write_png(self, workflow_run_id: str, section_id: str, fmt: str, attempt: int, data: bytes) -> str:
+        """Persist a rendered PNG and return the storage-relative POSIX path.
+
+        Files are namespaced by workflow + section + format + attempt so a
+        retry never overwrites the previous attempt's bytes.
+        """
         rel_dir = Path("diagrams") / workflow_run_id
         out_dir = self._storage_root / rel_dir
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -77,6 +109,8 @@ class DiagramSectionGenerator:
         filename = f"{section_id}_{fmt}_a{attempt}.png"
         out_path = out_dir / filename
         out_path.write_bytes(data)
+        # Use forward slashes in the persisted path so the same value works
+        # on Windows and POSIX exporters.
         return str(rel_dir / filename).replace("\\", "/")
 
     async def generate(
@@ -112,10 +146,13 @@ class DiagramSectionGenerator:
         diagram_format: str | None = None
         last_source = ""
 
-        plantuml_template = self._prompts.load_template("diagram", section.prompt_selector)
-        correction_template = self._prompts.load_template("diagram", "correction")
+        plantuml_template = self._prompts.load_template_with_shared_policy("diagram", section.prompt_selector)
+        correction_template = self._prompts.load_template_with_shared_policy("diagram", "correction")
 
-        # Phase 1: PlantUML
+        # Phase 1: PlantUML attempts with correction loop ---------------
+        # First attempt uses the section's diagram prompt; subsequent
+        # attempts feed the error + prior source into the correction prompt
+        # so the model can repair specific issues rather than start over.
         for attempt in range(1, MAX_PLANTUML_ATTEMPTS + 1):
             before = cost_tracker.snapshot()
 
@@ -191,8 +228,10 @@ class DiagramSectionGenerator:
                 "error": None,
             }
 
-        # Phase 2: Mermaid fallback
-        mermaid_template = self._prompts.load_template("diagram", "mermaid_default")
+        # Phase 2: Mermaid fallback --------------------------------------
+        # When PlantUML keeps failing the model usually has the right idea
+        # but bad syntax — Mermaid has fewer ways to go wrong.
+        mermaid_template = self._prompts.load_template_with_shared_policy("diagram", "mermaid_default")
         for attempt in range(1, MAX_MERMAID_ATTEMPTS + 1):
             before = cost_tracker.snapshot()
 
@@ -242,7 +281,9 @@ class DiagramSectionGenerator:
                 "error": None,
             }
 
-        # Phase 3: deterministic fallback diagram
+        # Phase 3: deterministic fallback diagram ------------------------
+        # Tiny two-node flowchart with the section title. Always renders
+        # — guarantees the export never has an empty diagram slot.
         fallback_source = self._fallback_mermaid_source(section.title)
         try:
             png = await self._kroki.render_png("mermaid", fallback_source)
@@ -251,7 +292,7 @@ class DiagramSectionGenerator:
 
             return {
                 "output_type": "diagram",
-                "content": "_Fallback diagram used because model generation failed._",
+                "content": "",
                 "diagram_path": diagram_path,
                 "diagram_format": diagram_format,
                 "diagram_source": fallback_source,
@@ -268,7 +309,7 @@ class DiagramSectionGenerator:
         err_text = last_error or "Diagram generation failed."
         return {
             "output_type": "diagram",
-            "content": f"_Diagram generation failed: {err_text}_",
+            "content": NEUTRAL_DIAGRAM_PLACEHOLDER,
             "diagram_path": diagram_path,
             "diagram_format": diagram_format,
             "diagram_source": last_source,
@@ -281,6 +322,11 @@ class DiagramSectionGenerator:
         }
 
     def _tighten_diagram_prompt(self, prompt: str, *, kind: str) -> str:
+        """Append a strict ``IMPORTANT:`` postscript to the prompt.
+
+        The suffix discourages markdown fences, explanations, and overly
+        large diagrams — small models tend to over-explain unless told.
+        """
         if kind == "plantuml":
             suffix = (
                 "\n\nIMPORTANT:\n"
@@ -303,6 +349,11 @@ class DiagramSectionGenerator:
         return f"{prompt.rstrip()}{suffix}"
 
     def _fallback_mermaid_source(self, title: str) -> str:
+        """Deterministic two-node Mermaid stub guaranteed to render.
+
+        Replaces ``"`` with ``'`` to keep Mermaid happy (a literal double
+        quote inside the label would terminate the string).
+        """
         safe_title = (title or "Diagram").replace('"', "'").strip() or "Diagram"
         return (
             "flowchart TD\n"

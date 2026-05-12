@@ -1,3 +1,13 @@
+"""Section-to-placeholder binding resolution rules.
+
+Covers the priority order used by
+:func:`resolve_section_placeholder_bindings`:
+
+1. Explicit ``section_placeholder_bindings`` map wins.
+2. Otherwise an exact ``section_id`` match against a placeholder id.
+3. Unmatched sections surface as errors, unused placeholders as warnings.
+"""
+
 from __future__ import annotations
 
 from modules.template.section_bindings import resolve_section_placeholder_bindings
@@ -47,8 +57,10 @@ def test_resolve_errors_on_unknown_placeholder_in_map() -> None:
     assert any(e.get("code") == "binding_unknown_placeholder" for e in err)
 
 
-def test_resolve_errors_on_unbound_section() -> None:
+def test_resolve_warns_on_unbound_section() -> None:
     schema = {"placeholders": [{"placeholder_id": "x", "location": {"part": "word/document.xml", "xml_path": "/w:document/w:body/w:p[1]", "mask_scope": "path_node"}}]}
     plan = [{"section_id": "sec-unbound", "execution_order": 1}]
-    _bindings, err, _warn = resolve_section_placeholder_bindings(section_plan=plan, placeholder_schema=schema)
-    assert any(e.get("code") == "section_placeholder_unbound" for e in err)
+    bindings, err, warn = resolve_section_placeholder_bindings(section_plan=plan, placeholder_schema=schema)
+    assert not err
+    assert bindings.get("sec-unbound") == []
+    assert any(w.get("code") == "section_placeholder_unbound" for w in warn)

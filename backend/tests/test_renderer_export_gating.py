@@ -106,3 +106,48 @@ def test_blocks_when_native_required_but_not_available(tmp_path: Path, monkeypat
     )
     assert any((w or {}).get("code") == "docx_native_prerequisites_unmet" for w in warns)
     assert not _out.exists()
+
+
+def test_custom_docx_export_skips_structure_fixer_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "template_docx_legacy_export_allowed", True)
+    monkeypatch.setattr(settings, "template_fidelity_strict_enabled", False)
+    monkeypatch.setattr(settings, "template_docx_placeholder_native_enabled", False)
+    monkeypatch.setattr(settings, "template_docx_require_native_for_custom", False)
+    monkeypatch.setattr(settings, "template_docx_structure_fixer_scope", "inbuilt_only")
+
+    storage = tmp_path
+    (storage / "outputs").mkdir(parents=True)
+    tpl_dir = storage / "templates"
+    tpl_dir.mkdir(parents=True)
+    docx_path = tpl_dir / "custom.docx"
+    _minimal_custom_docx(docx_path)
+
+    assembled = AssembledDocument(
+        title="T",
+        doc_type=DocType.PDD.value,
+        sections=[
+            AssembledSection(
+                section_id="s1",
+                title="Overview",
+                level=1,
+                output_type="text",
+                content="Hello",
+            ),
+        ],
+    )
+    renderer = ExportRenderer(storage)
+    out, _name, warns = renderer.render(
+        workflow_run_id="wf-custom-skip",
+        document=ExportDocumentInfo(filename="BRD.pdf"),
+        template=ExportTemplateInfo(
+            template_id="tpl-custom",
+            template_source=TemplateSource.CUSTOM,
+            file_path="custom.docx",
+            placeholder_schema=None,
+            section_placeholder_map=None,
+        ),
+        assembled=assembled,
+        style_map=StyleMap(),
+    )
+    assert out.exists()
+    assert any((w or {}).get("code") == "docx_structure_fixer_skipped_non_inbuilt" for w in warns)

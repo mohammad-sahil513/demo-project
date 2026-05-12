@@ -1,4 +1,4 @@
-"""Inbuilt style map for SDD."""
+"""Inbuilt style map for SDD — blue accent for an engineering tone."""
 
 from __future__ import annotations
 

@@ -1,3 +1,16 @@
+"""Phase 6 (TEMPLATE_PREPARATION) tests: extractor, classifier, planner, registry.
+
+Validates the custom template compile pipeline end to end:
+
+- :class:`TemplateExtractor` returns headings, style map, sheet map
+  for both DOCX and XLSX inputs.
+- :class:`TemplateClassifier` falls back to heuristics when the LLM is
+  unavailable or returns an invalid payload.
+- :class:`SectionPlanner` produces stable section IDs and respects the
+  classifier's ``include_in_section_plan=False`` overrides.
+- The inbuilt registry returns deep copies so callers can safely mutate.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -184,3 +197,26 @@ def test_workflow_executor_template_phase_uses_inbuilt_registry(tmp_path) -> Non
         assert updated.style_map
 
     asyncio.run(_run())
+
+
+def test_template_preview_html_fallback_escapes_user_controlled_values(tmp_path) -> None:
+    repo = TemplateRepository(Path(tmp_path) / "templates")
+    service = TemplateService(repo)
+    now = utc_now_iso()
+    record = TemplateRecord(
+        template_id="tpl-escape",
+        filename='evil"><img src=x onerror=alert(1)>',
+        template_type="UAT",
+        status=TemplateStatus.READY.value,
+        file_path="tpl-escape.xlsx",
+        preview_path=None,
+        preview_html=None,
+        created_at=now,
+        updated_at=now,
+    )
+    repo.save(record)
+
+    html = service.get_preview_html("tpl-escape")
+    assert "<img" not in html
+    assert "&lt;img src=x onerror=alert(1)&gt;" in html
+    assert "&quot;&gt;" in html

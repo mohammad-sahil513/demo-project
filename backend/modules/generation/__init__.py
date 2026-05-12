@@ -1,4 +1,16 @@
-"""Generation phase: prompts, LLM calls, diagram rendering."""
+"""Generation phase: prompt loading, LLM calls, and diagram rendering.
+
+The generation orchestrator runs sections in dependency-aware *waves*
+(parallel-safe groups) and routes each section to the right generator:
+
+- :class:`TextSectionGenerator`     prose sections (default).
+- :class:`TableSectionGenerator`    structured tables.
+- :class:`DiagramSectionGenerator`  Mermaid/PlantUML diagrams via Kroki.
+
+Cost is tracked through :class:`GenerationCostTracker` so we can emit a
+per-run cost JSONL log and a workflow-level rollup. See
+``docs/PIPELINE.md`` for the wave-execution model.
+"""
 
 from __future__ import annotations
 

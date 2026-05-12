@@ -1,4 +1,9 @@
-"""Inbuilt SDD section definitions."""
+"""Inbuilt SDD (Solution Design Document) section definitions.
+
+Mirror of :mod:`pdd_sections` for the SDD template. Sections lean toward
+``output_type="diagram"`` because the SDD covers architecture and
+sequence views — those flow through the diagram generator and Kroki.
+"""
 
 from __future__ import annotations
 

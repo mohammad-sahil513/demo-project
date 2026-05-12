@@ -1,3 +1,11 @@
+/**
+ * Floating download panel on the Output page.
+ *
+ * Lists every completed deliverable with an `output_id` and renders a
+ * button that opens the streaming download endpoint
+ * (`/api/outputs/{output_id}/download`) in a new tab. The browser's
+ * download handler takes over from there.
+ */
 import { Download } from 'lucide-react'
 import { useJobStore, type DocType } from '../../store/useJobStore'
 import { outputApi } from '../../api/outputApi'

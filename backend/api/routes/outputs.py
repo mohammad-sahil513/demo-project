@@ -1,4 +1,12 @@
-"""Output routes."""
+"""Output routes — exported artifact metadata and downloads.
+
+- ``GET /api/outputs/{output_id}``           Return the ``OutputRecord``
+  payload so the frontend can build a download link with filename.
+
+- ``GET /api/outputs/{output_id}/download``  Stream the binary file as
+  ``application/octet-stream``. ``FileResponse`` handles range requests
+  and content-length headers for us.
+"""
 
 from __future__ import annotations
 

@@ -1,3 +1,16 @@
+"""Phase 5 (INGESTION) tests: parser, chunker, indexer, coordinator.
+
+Scenario matrix:
+
+- Parser delegates byte payload + content type to the Document
+  Intelligence client; content type is normalized for PDF and DOCX.
+- Chunker emits a chunk per table first, then heading-aware sliding
+  windows for prose; offsets map back to page markers.
+- Indexer batches embeddings and search upserts and rolls up cost.
+- Coordinator's asyncio lock prevents concurrent re-ingestion for the
+  same document and skips when the record is already ``INDEXED``.
+"""
+
 from __future__ import annotations
 
 import asyncio

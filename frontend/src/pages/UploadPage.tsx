@@ -1,3 +1,19 @@
+/**
+ * Upload page (route: `/`).
+ *
+ * Lets the user:
+ *
+ * 1. Upload a BRD file (PDF / DOCX) via {@link FileUploader}.
+ * 2. Choose which deliverables (PDD / SDD / UAT) to generate via
+ *    {@link DocumentSelector}.
+ * 3. Pick a template per selected deliverable via {@link TemplateSelector}.
+ * 4. Submit — the page calls `uploadDocument` then `createWorkflow` for
+ *    every chosen deliverable in parallel, stores the run ids in the job
+ *    store, and navigates to `/progress`.
+ *
+ * Validation runs inline (no toasts) so the user sees the exact reason a
+ * submission was rejected next to the offending control.
+ */
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight, AlertCircle } from 'lucide-react'

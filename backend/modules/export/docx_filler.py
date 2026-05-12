@@ -1,4 +1,21 @@
-"""Fill a custom DOCX template with assembled section content."""
+"""Legacy heading-based DOCX filler for custom templates.
+
+This is the **legacy** path that pre-dates the placeholder-native filler.
+It walks the user's DOCX, finds heading paragraphs that match the
+:class:`AssembledSection` titles, and writes generated content directly
+under each heading.
+
+Used when:
+
+- The template ships without placeholders (no ``{{ tokens }}``, no content
+  controls, no named bookmarks), AND
+- The legacy export path is enabled (``EXPORT_ALLOW_LEGACY_HEADING_FILL``).
+
+When the strict-fidelity feature flag is on, the renderer refuses to use
+this path and forces native filling. The code remains for backward
+compatibility with templates uploaded before the placeholder schema
+existed.
+"""
 
 from __future__ import annotations
 
@@ -179,14 +196,16 @@ def _apply_paragraph_alignment(paragraph: Paragraph, alignment: str) -> None:
         paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
 
 
-def _apply_body_style(paragraph: Paragraph, sm: StyleMap) -> None:
+def _apply_body_style(paragraph: Paragraph, sm: StyleMap, *, relax_emphasis: bool = False) -> None:
+    bold = sm.body.bold and not relax_emphasis
+    italic = sm.body.italic and not relax_emphasis
     for run in paragraph.runs:
         _apply_run_style(
             run,
             font_name=sm.body.font_name,
             font_size_pt=sm.body.font_size_pt,
-            bold=sm.body.bold,
-            italic=sm.body.italic,
+            bold=bold,
+            italic=italic,
         )
     _apply_paragraph_alignment(paragraph, sm.body.alignment)
 
@@ -222,6 +241,8 @@ def _add_line_after_doc(
     line: str,
     normal,
     sm: StyleMap,
+    *,
+    relax_emphasis: bool = False,
 ) -> Paragraph:
     stripped = line.strip()
     if not stripped:
@@ -241,7 +262,7 @@ def _add_line_after_doc(
                     ref.add_run(text)
             except (KeyError, ValueError):
                 ref.add_run(f"• {text}")
-            _apply_body_style(ref, sm)
+            _apply_body_style(ref, sm, relax_emphasis=relax_emphasis)
             return ref
 
     if numbered:
@@ -252,11 +273,11 @@ def _add_line_after_doc(
                 ref.add_run(text)
         except (KeyError, ValueError):
             ref.add_run(stripped)
-        _apply_body_style(ref, sm)
+        _apply_body_style(ref, sm, relax_emphasis=relax_emphasis)
         return ref
 
     out = _insert_paragraph_after(after, stripped, normal)
-    _apply_body_style(out, sm)
+    _apply_body_style(out, sm, relax_emphasis=relax_emphasis)
     return out
 
 
@@ -356,6 +377,7 @@ class DocxFiller:
                 suppress_image_target=_normalize_image_target_key(section.diagram_path) if diagram_rendered else None,
                 suppress_all_image_blocks=diagram_rendered and section.output_type == "diagram",
                 diagram_section=(section.output_type == "diagram"),
+                relax_emphasis=True,
             )
 
         doc.save(str(output_path))
@@ -374,6 +396,7 @@ class DocxFiller:
         suppress_image_target: str | None = None,
         suppress_all_image_blocks: bool = False,
         diagram_section: bool = False,
+        relax_emphasis: bool = True,
     ) -> Paragraph:
         ref = after
 
@@ -390,18 +413,22 @@ class DocxFiller:
 
             if block.kind == "paragraph":
                 para = _insert_paragraph_after(ref, block.text, normal)
-                _apply_body_style(para, sm)
+                _apply_body_style(para, sm, relax_emphasis=relax_emphasis)
                 ref = para
                 continue
 
             if block.kind == "bullet_list":
                 for item in block.items:
-                    ref = _add_line_after_doc(doc, ref, f"- {item}", normal, sm)
+                    ref = _add_line_after_doc(
+                        doc, ref, f"- {item}", normal, sm, relax_emphasis=relax_emphasis
+                    )
                 continue
 
             if block.kind == "numbered_list":
                 for idx, item in enumerate(block.items, start=1):
-                    ref = _add_line_after_doc(doc, ref, f"{idx}. {item}", normal, sm)
+                    ref = _add_line_after_doc(
+                        doc, ref, f"{idx}. {item}", normal, sm, relax_emphasis=relax_emphasis
+                    )
                 continue
 
             if block.kind in {"table_gfm", "table_html"}:

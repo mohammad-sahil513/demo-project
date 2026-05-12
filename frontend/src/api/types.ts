@@ -1,3 +1,13 @@
+/**
+ * Shared TypeScript types for backend responses.
+ *
+ * The shapes here mirror the Pydantic models in
+ * `backend/repositories/*_models.py` plus the DTOs returned by each API
+ * route. Update them in lockstep with the backend whenever a route adds
+ * or renames a field; the response interceptor in `api/client.ts`
+ * unwraps the envelope so route hooks see these data shapes directly.
+ */
+
 /** Backend success envelope (unwrapped by axios interceptor). */
 export interface ApiEnvelope<T = unknown> {
   success: boolean
@@ -48,6 +58,9 @@ export interface AssembledSectionRow {
   execution_order?: number
   output_type?: string
   content?: string | null
+  /** Relative path under storage; same file embedded in exported DOCX. */
+  diagram_path?: string | null
+  level?: number
   metadata?: Record<string, unknown>
 }
 

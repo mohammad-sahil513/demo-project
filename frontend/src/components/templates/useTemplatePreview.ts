@@ -1,3 +1,22 @@
+/**
+ * Shared hook that loads a template's preview artifacts and renders the
+ * DOCX preview into a caller-provided container.
+ *
+ * Behavior:
+ *
+ * - Fetches the full :{@link TemplateDto} metadata first.
+ * - For DOCX templates, downloads the preview binary and renders it via
+ *   `docx-preview`'s `renderAsync` into the supplied container element.
+ *   The container reference is allowed to be `null` (e.g. before the
+ *   modal mounts the slot); the hook waits until a real element is
+ *   provided.
+ * - For XLSX templates, fetches the HTML preview string from the
+ *   backend and exposes it via `previewHtml` so the consumer can render
+ *   it with `dangerouslySetInnerHTML`.
+ *
+ * The `reloadPreview` function is intentionally stable (memoized) so it
+ * can be used as an effect dependency without causing infinite loops.
+ */
 import { useCallback, useState } from 'react'
 import { renderAsync } from 'docx-preview'
 import { templateApi } from '../../api/templateApi'
@@ -57,25 +76,25 @@ export function useTemplatePreview({
           setPreviewHtml('<div>No sheet preview available yet. Showing schema details below.</div>')
         }
       } else {
-        let binary: ArrayBuffer
         try {
-          binary = await templateApi.getTemplatePreviewBinary(templateId)
-        } catch {
-          binary = await templateApi.getTemplateBinary(templateId)
-        }
-        if (container) {
-          container.innerHTML = ''
-          await renderAsync(binary, container, undefined, {
-            className: 'docx-preview-content',
-            inWrapper: true,
-            ignoreWidth: false,
-            ignoreHeight: false,
-            useBase64URL: true,
-            renderHeaders: true,
-            renderFooters: true,
-            renderFootnotes: true,
-            renderEndnotes: true,
-          } as Parameters<typeof renderAsync>[3])
+          const binary = await templateApi.getTemplatePreviewBinary(templateId)
+          if (container) {
+            container.innerHTML = ''
+            await renderAsync(binary, container, undefined, {
+              className: 'docx-preview-content',
+              inWrapper: true,
+              ignoreWidth: false,
+              ignoreHeight: false,
+              useBase64URL: true,
+              renderHeaders: true,
+              renderFooters: true,
+              renderFootnotes: true,
+              renderEndnotes: true,
+            } as Parameters<typeof renderAsync>[3])
+          }
+        } catch (err: unknown) {
+          setError(getApiErrorMessage(err, 'Could not load generated DOCX preview.'))
+          return
         }
       }
     } catch (err: unknown) {

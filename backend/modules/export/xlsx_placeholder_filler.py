@@ -1,4 +1,10 @@
-"""Strict XLSX filler wrapper using existing builder with contract checks."""
+"""Strict XLSX filler wrapper — schema check + delegate to :class:`XlsxBuilder`.
+
+This is the placeholder-aware path for XLSX exports. Today it adds a
+schema-presence check (``check_xlsx_schema``) and then delegates to the
+existing builder. The wrapper exists so we can route strict mode through
+a stable contract while we incrementally add named-range writes here.
+"""
 
 from __future__ import annotations
 

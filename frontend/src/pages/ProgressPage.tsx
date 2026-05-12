@@ -1,3 +1,21 @@
+/**
+ * Progress page (route: `/progress`).
+ *
+ * Shows a per-deliverable {@link ProgressBar} that reflects the live
+ * workflow phase + progress. Data flows from SSE first (real-time) with
+ * polling as a fallback:
+ *
+ * - On mount the page opens one SSE stream per active workflow run.
+ * - On each event it merges the payload into the per-type status state
+ *   (debounced by {@link POLL_DEBOUNCE_MS} to keep React updates cheap).
+ * - If every SSE stream ends up `CLOSED` after the bootstrap window the
+ *   page falls back to plain polling.
+ * - A periodic safety poll ({@link SSE_SAFETY_POLL_MS}) catches missed
+ *   events during quiet phases.
+ *
+ * When every run reaches a terminal state the user is offered a "View
+ * output" CTA that routes to `/output` with the first completed type.
+ */
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight, RefreshCw, AlertCircle } from 'lucide-react'

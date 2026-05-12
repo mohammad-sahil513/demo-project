@@ -1,4 +1,22 @@
-"""Document service for BRD file metadata + storage operations."""
+"""Document service — upload, retrieval, delete, and cost rollup for BRDs.
+
+Wraps :class:`DocumentRepository` and binary storage. Each saved
+:class:`DocumentRecord` corresponds to one ``<document_id>.json`` plus a
+sibling ``<document_id>.bin`` file under ``storage/documents/``.
+
+Key responsibilities:
+
+- ``save_document``    Generate the prefixed ID, write the binary, and
+                       persist the record.
+- ``get_file_path``    Resolve the absolute path used by the parser
+                       and Document Intelligence adapter.
+- ``delete``           Refuse deletion while any workflow against the
+                       document is RUNNING (single-node guarantee).
+- ``cost_summary``     Aggregate per-document Azure spend by walking
+                       associated workflow records — split into
+                       completed and all-status totals so the UI can
+                       show both.
+"""
 
 from __future__ import annotations
 

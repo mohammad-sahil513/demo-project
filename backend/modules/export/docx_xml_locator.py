@@ -1,4 +1,14 @@
-"""Utilities for locating DOCX nodes by schema path."""
+"""Utilities for locating DOCX nodes by schema path.
+
+The placeholder schema stores a ``part`` (the OOXML part name like
+``word/document.xml``) plus an ``xml_path`` (XPath expression) for every
+placeholder. :func:`parse_xml_target` validates and packs that triple
+into an :class:`XmlTarget` dataclass — the writer module uses these to
+walk the parsed XML tree and rewrite the right node.
+
+Anything missing one of the three fields returns ``None`` so the caller
+can skip the placeholder cleanly instead of crashing.
+"""
 
 from __future__ import annotations
 

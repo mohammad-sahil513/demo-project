@@ -1,3 +1,11 @@
+"""DOCX template schema extraction: tokens, content controls, bookmarks.
+
+Builds DOCX fixtures covering each placeholder source recognized by
+:func:`extract_docx_schema` and asserts that the produced
+:class:`TemplateSchema` carries the right ``placeholder_id``,
+``mask_scope``, and XPath for every entry.
+"""
+
 from pathlib import Path
 from zipfile import ZipFile
 

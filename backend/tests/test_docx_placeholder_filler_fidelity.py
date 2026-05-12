@@ -1,3 +1,11 @@
+"""DOCX placeholder filler fidelity: integrity issues vs source template.
+
+Each test builds a small DOCX template with deterministic placeholders,
+runs :class:`DocxPlaceholderFiller`, and asserts that the integrity check
+reports zero violations and the surface fidelity scan finds no orphan
+placeholder tokens.
+"""
+
 from pathlib import Path
 
 from docx import Document

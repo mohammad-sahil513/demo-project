@@ -1,4 +1,18 @@
-"""Resolve section plan to placeholder IDs (hybrid: explicit map + exact section_id match)."""
+"""Resolve section plan to placeholder IDs (hybrid: explicit map + exact section_id match).
+
+The DOCX placeholder-native export needs to know which placeholder receives
+which generated section. We support two binding styles, applied in order:
+
+1. **Explicit map** — ``placeholder_schema["section_placeholder_bindings"]``
+   maps ``section_id`` -> ``placeholder_id`` (or list of IDs). Authors
+   maintain this when section IDs and placeholder IDs do not match.
+2. **Exact match** — when no explicit binding exists, a placeholder whose
+   ``placeholder_id`` equals the section's ``section_id`` is used.
+
+Errors are surfaced for unknown placeholder IDs; warnings for unbound
+sections and unused placeholders. Section binding strictness is gated by
+``settings.template_section_binding_strict`` in the compile pipeline.
+"""
 
 from __future__ import annotations
 
@@ -47,6 +61,8 @@ def resolve_section_placeholder_bindings(
     Resolution order per section_id:
     1. Explicit entry in schema['section_placeholder_bindings']
     2. Exact match: a placeholder with placeholder_id == section_id
+    3. Otherwise: section is recorded with an empty placeholder list and a warning (templates
+       without deterministic placeholders / without matching ids still compile and preview).
     """
     errors: list[dict[str, object]] = []
     warnings: list[dict[str, object]] = []
@@ -102,7 +118,8 @@ def resolve_section_placeholder_bindings(
             used_placeholders.add(sid)
             continue
 
-        errors.append(
+        bindings[sid] = []
+        warnings.append(
             {
                 "code": "section_placeholder_unbound",
                 "message": (
@@ -110,7 +127,7 @@ def resolve_section_placeholder_bindings(
                     "add section_placeholder_bindings or use a placeholder_id equal to section_id."
                 ),
                 "section_id": sid,
-                "level": "error",
+                "level": "warning",
             }
         )
 

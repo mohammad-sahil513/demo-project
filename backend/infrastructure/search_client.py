@@ -1,4 +1,27 @@
-"""Azure AI Search adapter."""
+"""Azure AI Search adapter — indexing + hybrid retrieval.
+
+Responsibilities
+----------------
+- Upsert chunked document text + embeddings into the Azure AI Search index.
+- Run hybrid keyword + vector queries during the retrieval phase.
+- Delete documents from the index (cleanup on re-ingestion).
+
+Resilience
+----------
+Azure AI Search throttles aggressively under load (typically 503/429). The
+adapter implements an exponential-backoff retry with jitter, honoring
+``Retry-After`` when the server provides one. We never retry 4xx unless the
+status is in :data:`SEARCH_RETRYABLE_STATUS_CODES` — that would mask real
+client-side bugs.
+
+Observability
+-------------
+Each request emits a structured log line with the operation, attempt count,
+duration, and a payload summary (vector dim, top-k, filter shape). The
+summary intentionally omits the embedding vector and full query text so
+logs stay small and PII-light.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -16,9 +39,11 @@ from core.exceptions import IngestionException
 
 logger = logging.getLogger(__name__)
 
+# Pin the API version — the search index schema and query DSL evolve.
 SEARCH_API_VERSION = "2025-09-01"
 
-# Phase 1 + Phase 3 configuration
+# Retry / timeout knobs. ``SEARCH_INDEX_TIMEOUT_SECONDS`` is higher than the
+# default because indexing batches with hundreds of chunks can take a while.
 SEARCH_RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 SEARCH_MAX_RETRY_ATTEMPTS = 4
 SEARCH_RETRY_BASE_DELAY_SECONDS = 1.0
@@ -31,6 +56,12 @@ SEARCH_INDEX_TIMEOUT_SECONDS = 60.0
 
 @dataclass(slots=True)
 class SearchChunk:
+    """One chunk ready for upsert into the search index.
+
+    Field names match the index schema exactly — do not rename without
+    updating the index definition in Azure.
+    """
+
     chunk_id: str
     document_id: str
     workflow_run_id: str
@@ -43,7 +74,7 @@ class SearchChunk:
 
 
 class AzureSearchClient:
-    """Adapter for indexing and hybrid retrieval operations."""
+    """Adapter for Azure AI Search indexing and hybrid retrieval operations."""
 
     def __init__(
         self,
@@ -65,11 +96,13 @@ class AzureSearchClient:
         return bool(self._endpoint and self._api_key and self._index_name)
 
     def _get_client(self, *, timeout_seconds: float) -> httpx.AsyncClient:
-        """
-        Lazily create and reuse a single AsyncClient.
-        If an existing client has a different timeout requirement, keep the existing
-        one to preserve connection reuse. The default timeout is already sufficient
-        for search calls.
+        """Lazily create and reuse a single :class:`httpx.AsyncClient`.
+
+        Connection reuse matters here — Azure Search lives on HTTPS/2 and
+        each fresh TCP+TLS handshake adds 100-200 ms. We intentionally keep
+        the first-created timeout even if a later caller passes a different
+        one because the default timeout is already long enough for every
+        operation we issue.
         """
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=timeout_seconds)
@@ -143,8 +176,13 @@ class AzureSearchClient:
         attempt: int,
         response: httpx.Response | None = None,
     ) -> float:
-        """
-        Prefer Retry-After if present; otherwise exponential backoff + jitter.
+        """Compute the next retry delay.
+
+        Strategy:
+        1. Honor ``Retry-After`` (in seconds) if the server provides one.
+        2. Otherwise exponential backoff (``base * 2^(attempt-1)``) capped at
+           :data:`SEARCH_RETRY_MAX_DELAY_SECONDS`.
+        3. Add up to 250 ms of jitter so concurrent retries don't thunder.
         """
         if response is not None:
             retry_after = response.headers.get("Retry-After")
@@ -172,9 +210,15 @@ class AzureSearchClient:
         operation: str,
         timeout_seconds: float,
     ) -> httpx.Response:
-        """
-        Retry transient Azure Search failures (especially 503 throttling / heavy load)
-        and emit observability logs for retry behavior and latency.
+        """POST with retry for transient Azure Search failures.
+
+        Retries on:
+        - Status codes in :data:`SEARCH_RETRYABLE_STATUS_CODES` (429/5xx),
+        - :class:`httpx.RequestError` transport failures.
+
+        Non-retryable :class:`httpx.HTTPStatusError` is re-raised immediately
+        after a detailed error log so the root cause is obvious. Each retry
+        attempt and the final outcome are logged with a payload summary.
         """
         client = self._get_client(timeout_seconds=timeout_seconds)
         last_request_error: httpx.RequestError | None = None
@@ -391,6 +435,12 @@ class AzureSearchClient:
         return len(ids)
 
     def build_document_filter(self, document_id: str) -> str:
+        """Build the OData ``$filter`` clause that scopes results to one doc.
+
+        Single quotes in the ID are doubled per the Azure Search OData spec
+        to escape them — we generate IDs ourselves so this is defensive, but
+        a future change to ID generation must not break filtering silently.
+        """
         safe_document_id = document_id.replace("'", "''")
         return f"document_id eq '{safe_document_id}'"
 

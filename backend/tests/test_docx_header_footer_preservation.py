@@ -1,3 +1,10 @@
+"""Header/footer preservation: contract validator surfaces missing anchors.
+
+When a DOCX template ships without ``relationship_parts`` anchors, the
+strict fidelity probe needs to warn so operators can fix the template
+before relying on it for production exports.
+"""
+
 from modules.template.contract_validator import validate_template_schema
 from modules.template.schema_models import TemplateSchema
 

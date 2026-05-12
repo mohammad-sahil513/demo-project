@@ -1,3 +1,11 @@
+/**
+ * BRD file upload card — drag-and-drop area + file picker fallback.
+ *
+ * Accepts only `.pdf` and `.docx`. The selected file is stored on the
+ * job store as a {@link File}; the actual upload to the backend happens
+ * when the user submits the upload page form. This keeps the network
+ * round-trip out of the on-drop handler so the UI stays snappy.
+ */
 import { useRef, useState, DragEvent, ChangeEvent } from 'react'
 import { Upload, File, X } from 'lucide-react'
 import { useJobStore } from '../../store/useJobStore'

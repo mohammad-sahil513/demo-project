@@ -1,4 +1,16 @@
-"""Post-process exported DOCX so page 1 is title-only, page 2 is TOC-only, page 3+ is body."""
+"""Post-process exported DOCX so page 1 is title-only, page 2 is TOC-only, page 3+ is body.
+
+DOCX exports targeting the EY-style fidelity contract require a strict
+title/TOC pagination shape: the title page is fully isolated, the table
+of contents lives on its own page, and the body begins on page 3.
+
+This module reads the rendered ``document.xml``, inserts page break
+runs and section properties (``<w:sectPr>``) so Word renders the file
+that way out of the box without relying on the user to press
+``Ctrl+Enter`` after opening. The fix is feature-flag gated by
+``EXPORT_TITLE_TOC_PAGE_STRUCTURE`` so older runs keep their original
+layout.
+"""
 
 from __future__ import annotations
 

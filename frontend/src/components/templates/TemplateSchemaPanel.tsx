@@ -1,3 +1,12 @@
+/**
+ * Schema + export-path-hint detail card on the template preview screen.
+ *
+ * The labels below mirror the values produced by
+ * `modules.template.export_hint.compute_export_path_hint` on the
+ * backend. Keep both sides in sync — adding a new hint string here
+ * without a corresponding backend value means the UI will fall back to
+ * displaying the raw key, which looks scary.
+ */
 const EXPORT_PATH_HINT_LABELS: Record<string, string> = {
   xlsx_or_other: 'XLSX / other (not custom DOCX path)',
   inbuilt_docx_builder: 'Inbuilt DOCX builder',

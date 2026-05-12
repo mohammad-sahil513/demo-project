@@ -1,3 +1,13 @@
+"""Template contract validation: error vs warning classification rules.
+
+Pins the rules in :func:`validate_template_schema`:
+
+- Empty placeholder ID and duplicate IDs raise *errors*.
+- Missing DOCX relationship anchors and absent placeholders raise
+  *warnings*.
+- Missing XLSX sheet anchors raise an *error*.
+"""
+
 from modules.template.contract_validator import validate_template_schema
 from modules.template.schema_models import PlaceholderDef, PlaceholderLocation, TemplateSchema
 

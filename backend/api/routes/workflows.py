@@ -1,8 +1,43 @@
-"""Workflow routes."""
+"""Workflow routes — create runs, poll status, and read diagnostics.
+
+Endpoints (all under ``/api/workflow-runs``):
+
+- ``POST   ""``                            Create a run. Validates the
+                                           document/template pair; if
+                                           ``start_immediately`` is true
+                                           (default) the executor is
+                                           dispatched as a background
+                                           task and progress flows to the
+                                           SSE stream.
+- ``GET    ""``                            List all runs.
+- ``GET    /{id}``                         Full record.
+- ``GET    /{id}/status``                  Compact poll-friendly payload
+                                           (status + phase + progress %).
+- ``GET    /{id}/sections``                Section plan + per-section
+                                           progress (used by the
+                                           generation UI).
+- ``GET    /{id}/observability``           Aggregated cost summary +
+                                           integrity hints. Adds
+                                           ``runtime_policy_mode`` so the
+                                           UI can show "strict" vs
+                                           "local-skip" mode.
+- ``GET    /{id}/errors``                  Errors + warnings collected
+                                           during the run.
+- ``GET    /{id}/diagnostics``             Everything an operator needs
+                                           for postmortem analysis.
+- ``GET    /{id}/sections/{section_id}/diagram``  Serve a generated
+                                           diagram PNG; the resolver
+                                           rejects any path that escapes
+                                           ``storage_root`` to prevent
+                                           directory traversal.
+"""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from pathlib import Path
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict
 
 from api.deps import get_task_dispatcher, get_workflow_executor, get_workflow_service
@@ -103,6 +138,55 @@ async def get_workflow_status(
         workflow.overall_progress_percent,
     )
     return success_response(data)
+
+
+@router.get("/{workflow_run_id}/sections/{section_id}/diagram")
+async def get_workflow_section_diagram(
+    workflow_run_id: str,
+    section_id: str,
+    workflow_service: WorkflowService = Depends(get_workflow_service),
+) -> FileResponse:
+    """
+    Serve a generated diagram PNG for document review (markdown preview).
+
+    Path is resolved from the assembled section's diagram_path under storage_root.
+    """
+    workflow = workflow_service.get_or_raise(workflow_run_id)
+    assembled = workflow.assembled_document or {}
+    sections = assembled.get("sections")
+    if not isinstance(sections, list):
+        raise HTTPException(status_code=404, detail="No assembled document sections.")
+
+    diagram_path: str | None = None
+    for row in sections:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("section_id") or "") != section_id:
+            continue
+        raw = row.get("diagram_path")
+        diagram_path = str(raw).strip().replace("\\", "/") if raw else None
+        break
+    else:
+        raise HTTPException(status_code=404, detail="Section not found in assembled document.")
+
+    if not diagram_path:
+        raise HTTPException(status_code=404, detail="This section has no generated diagram file.")
+
+    root = settings.storage_root.resolve()
+    try:
+        abs_path = (root / Path(diagram_path)).resolve()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail="Invalid diagram path.") from exc
+
+    try:
+        abs_path.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Diagram path escapes storage root.") from exc
+
+    if not abs_path.is_file():
+        raise HTTPException(status_code=404, detail="Diagram file is missing on disk.")
+
+    return FileResponse(abs_path, media_type="image/png")
 
 
 @router.get("/{workflow_run_id}/sections")

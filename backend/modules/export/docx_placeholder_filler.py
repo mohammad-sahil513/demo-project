@@ -1,7 +1,11 @@
 """Strict placeholder DOCX filler wrapper.
 
-Current implementation reuses DocxFiller for compatibility while exposing
-strict-mode diagnostics and contract boundary.
+Public surface for the *strict* placeholder fill path. The current
+implementation delegates to the legacy :class:`DocxFiller` so we can swap
+in the new native writer behind this stable contract without touching the
+renderer. The wrapper sets ``placeholder_schema`` to ``None`` on the
+delegate call so the heading-based path runs uniformly — strict gating
+itself is enforced by the renderer before this filler is invoked.
 """
 
 from __future__ import annotations

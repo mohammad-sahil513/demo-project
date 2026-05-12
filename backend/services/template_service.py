@@ -1,9 +1,32 @@
-"""Template service for custom template files and compile lifecycle."""
+"""Template service — upload, compile, fidelity probe, and lifecycle hooks.
+
+The largest service in the system. It coordinates:
+
+- **Upload**          Persist the raw bytes and create a ``COMPILING``
+                      :class:`TemplateRecord`.
+- **Compile**         Extract the structure (``TemplateExtractor``), pull
+                      the deterministic placeholder schema, run the
+                      classifier + planner pipeline to derive a section
+                      plan, validate the schema and section bindings, and
+                      transition the record to ``READY`` or ``FAILED``.
+- **Preview**         Build the visual preview artifact (DOCX or HTML)
+                      that the frontend modal renders.
+- **Fidelity probe**  For DOCX templates, run an export-parity sample
+                      fill against the template and integrity-check the
+                      result. Cache the issues + summary on the record.
+- **Refresh**         Re-run the fidelity probe on demand from the
+                      template detail UI.
+
+The compile path is async because the classifier issues LLM calls; every
+external call is wrapped with retries and timeouts read from
+:data:`core.config.settings`.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import shutil
+from html import escape
 from pathlib import Path
 
 from core.config import settings
@@ -325,7 +348,10 @@ class TemplateService:
         now = utc_now_iso()
         new_id = template_id()
 
-        file_path = self._repo._path / f"{new_id}.bin"
+        storage_suffix = Path(filename).suffix.lower()
+        if storage_suffix not in {".docx", ".xlsx"}:
+            storage_suffix = ".bin"
+        file_path = self._repo._path / f"{new_id}{storage_suffix}"
         file_path.write_bytes(payload)
 
         record = TemplateRecord(
@@ -588,7 +614,9 @@ class TemplateService:
             return record.preview_html
 
         preview = record.preview_path or f"Template {template_id_value} preview is not generated yet."
-        return f"<div><strong>{record.filename}</strong><p>{preview}</p></div>"
+        safe_filename = escape(str(record.filename or ""))
+        safe_preview = escape(str(preview))
+        return f"<div><strong>{safe_filename}</strong><p>{safe_preview}</p></div>"
 
     def get_placeholder_schema(self, template_id_value: str) -> dict[str, object]:
         record = self.get_or_raise(template_id_value)

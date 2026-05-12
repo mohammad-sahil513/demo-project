@@ -1,4 +1,12 @@
+/**
+ * Tab switcher for the Output page — one tab per generated deliverable.
+ *
+ * The active deliverable is stored on the job store (`activDoc`); this
+ * component only renders the tab triggers. Section preview rendering is
+ * delegated to {@link SectionSidebar} + {@link DocxViewer}.
+ */
 import { useJobStore, type DocType } from '../../store/useJobStore'
+import { buildSectionPreviewMarkdown } from '../../utils/sectionPreviewContent'
 
 export function DocumentTabs() {
   const {
@@ -6,6 +14,7 @@ export function DocumentTabs() {
     activDoc,
     setActiveDoc,
     workflowDetailByType,
+    workflowRunByType,
     setActiveSectionId,
     setSectionContent,
   } = useJobStore()
@@ -16,9 +25,12 @@ export function DocumentTabs() {
     setActiveDoc(type)
     const w = workflowDetailByType[type]
     const first = w?.assembled_document?.sections?.[0]
+    const runId = workflowRunByType[type]
     if (first) {
       setActiveSectionId(first.section_id)
-      setSectionContent(first.content ?? '_No content for this section._')
+      const md = runId ? buildSectionPreviewMarkdown(first, runId) : null
+      const fb = (first.content ?? '').trim() || null
+      setSectionContent((md ?? fb) ?? '_No content for this section._')
     } else {
       setActiveSectionId(null)
       setSectionContent(null)

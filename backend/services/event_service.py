@@ -1,4 +1,24 @@
-"""In-memory event service for SSE subscribers."""
+"""In-memory event broker for Server-Sent Events (SSE) subscribers.
+
+The workflow executor emits events at every phase boundary (e.g.
+``phase.started``, ``phase.completed``, ``workflow.completed``); the
+frontend subscribes to the SSE endpoint, which reads from one
+:class:`asyncio.Queue` per subscriber.
+
+Design choices:
+
+- **Per-workflow fanout** — each ``workflow_run_id`` has its own list of
+  subscriber queues. Most workflows have a single subscriber (the
+  Progress page in the UI), but multiple tabs subscribe independently.
+- **Bounded queues** — ``maxsize=200`` events. A queue that fills up
+  is treated as a slow consumer; new events are dropped rather than
+  blocking the producer. The workflow record on disk is still the
+  authoritative state.
+- **In-memory only** — surviving process restarts is not a requirement
+  (the workflow executor is also in-memory). After a restart the
+  frontend transparently reconnects and reads the persisted workflow
+  state.
+"""
 
 from __future__ import annotations
 

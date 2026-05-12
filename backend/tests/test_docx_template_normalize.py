@@ -1,3 +1,10 @@
+"""DOCX template normalization: trim filler table rows on compile.
+
+Asserts that ``apply_docx_template_normalize`` trims every ``w:tbl`` to
+at most two rows (header + canonical body), records a warning when rows
+are removed, and leaves the file untouched on parse/IO failure.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

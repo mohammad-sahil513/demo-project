@@ -1,4 +1,14 @@
-"""Build a minimal AssembledDocument for template preview / fidelity probes."""
+"""Build a minimal :class:`AssembledDocument` for template preview / fidelity probes.
+
+Used by the template compile pipeline to run a sample export through the
+same renderer that real workflows use — gives us an export-parity preview
+file and lets the integrity checker (``docx_integrity``) run before a real
+workflow runs against the template.
+
+Each section is filled with a short ``[Preview sample - ...]`` blurb so
+authors can visually confirm headings, ordering, and structure without
+making the previews look like real content.
+"""
 
 from __future__ import annotations
 

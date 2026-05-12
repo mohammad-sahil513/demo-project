@@ -1,4 +1,18 @@
-"""Semantic parsing helpers for generated markdown-ish / HTML-ish content."""
+"""Semantic parser for generated markdown-ish / HTML-ish section content.
+
+LLM-generated content arrives as freeform markdown that may contain
+headings, bullet/numbered lists, GFM tables, leaked HTML tables, inline
+images, reference-style image tokens, and plain paragraphs — sometimes
+all in one section. This module parses that into a typed list of
+:class:`ContentBlock` values that the renderers consume.
+
+Each block kind has consistent fields: tables expose ``rows``, lists
+expose ``items``, images expose ``image_target``/``image_alt``, and
+everything has a fallback ``text`` for downstream code that just wants
+the raw payload. Decorative wrappers like ``**_| a | b |_**`` are
+unwrapped before classification so we don't misclassify wrapped tables
+as paragraphs.
+"""
 from __future__ import annotations
 
 import re

@@ -1,4 +1,20 @@
-"""Document routes."""
+"""Document routes — BRD uploads, listing, retrieval, deletion, and cost view.
+
+Endpoints (all under ``/api/documents`` prefix):
+
+- ``POST /upload``        Multipart upload of a single BRD (PDF/DOCX).
+                          The server stores the binary and registers a
+                          :class:`DocumentRecord`. Ingestion does NOT
+                          run here — it runs on demand in the workflow
+                          ingest phase.
+- ``GET  ""``             List every document in the storage root.
+- ``GET  /{id}``          One record plus its aggregated cost summary.
+- ``GET  /{id}/cost``     Just the cost summary (cheaper than ``/{id}``).
+- ``DELETE /{id}``        Refuses while any workflow against the doc is
+                          RUNNING — see ``ensure_document_safe_to_delete``.
+
+All responses use the standard JSON envelope from :mod:`core.response`.
+"""
 
 from __future__ import annotations
 

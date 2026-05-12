@@ -1,3 +1,11 @@
+"""Phase 10 worker dispatch + SSE wiring tests.
+
+Asserts that :class:`TaskDispatcher` schedules work on
+``BackgroundTasks`` when present and falls back to the running event
+loop otherwise, and that any exception from the dispatched coroutine is
+logged without crashing the parent.
+"""
+
 from __future__ import annotations
 
 import asyncio
